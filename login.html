@@ -1,0 +1,1906 @@
+<!DOCTYPE html>
+<!--
+=====================================================================
+  SOCCER PLAYERS · FC BARCELONA — Registro e inicio de sesión
+  (proyecto académico, sin relación oficial con el club)
+=====================================================================
+  Todo el proyecto en un solo archivo. Se abre con doble clic o con
+  Live Server en Visual Studio Code.
+
+  ARCHIVOS DEL PROYECTO
+    login.html ........ esta página (registro e inicio de sesión)
+    bienvenido.html ... saludo con el nombre y botón a la plantilla
+    index.html ........ lista de jugadores (la página que ya existe)
+
+  ORGANIZACIÓN DEL ARCHIVO
+    A. ESTILOS (CSS)  ............ colores azulgrana, panel de marca,
+                                   formularios
+    B. ESTRUCTURA (HTML) ......... panel de marca y pantallas
+    C. CÓDIGO (JavaScript)
+       Parte 1. Reglas de validación (compartidas cliente / servidor)
+       Parte 2. Conexión con Supabase
+       Parte 3. Servidor: Supabase Auth (repite TODAS las validaciones)
+       Parte 4. Ayudas de interfaz
+       Parte 5. Pantallas (registro, login, recuperar,
+                restablecer, bienvenida)
+       Parte 6. Inicio de la aplicación
+
+  REGLA DE ORO: toda validación se hace dos veces.
+    - Cliente (Parte 5): avisa al usuario al instante.
+    - Servidor (Parte 3): vuelve a validar todo y luego usa
+      Supabase Auth, que guarda las cuentas, protege las contraseñas
+      y envía los correos reales.
+=====================================================================
+-->
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Soccer Players — Mi cuenta</title>
+  <!-- Ícono de la pestaña: franjas azulgrana con balón y estrella (versión simple del logo) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='2' y='2' width='60' height='60' rx='16' fill='%23eaf1fb'/%3E%3Cpath d='M18 18h8v32h-8zM34 18h8v32h-8z' fill='%23004d98'/%3E%3Cpath d='M26 18h8v32h-8zM42 18h4v32h-4z' fill='%23a50044'/%3E%3Cpath d='m32 28 6.7 4.9-2.6 7.9h-8.2l-2.6-7.9z' fill='%23fff'/%3E%3Cpath d='M51 6l2.2 5.3L58.5 13l-5.3 2.2L51 20.5l-2.2-5.3L43.5 13l5.3-1.7z' fill='%23edbb00'/%3E%3C/svg%3E">
+
+  <!-- Fuente redondeada Nunito (Google Fonts) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Librería de Supabase: cuentas, inicio de sesión y correos reales -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<!-- =================================================================
+     A. ESTILOS (CSS)
+     ================================================================= -->
+<style>
+  /* ---------------------------------------------------------------
+     A.1 PALETA DE COLORES (azul, grana y dorado)
+     Si quieres cambiar un color, cámbialo solo aquí.
+     --------------------------------------------------------------- */
+  :root {
+    --grana-claro: #fbe6ee;
+    --grana-suave: #e9a3bd;
+    --grana: #a50044;
+    --azul-claro: #eaf1fb;
+    --azul-suave: #c6d8f0;
+    --azul: #004d98;
+    --azul-oscuro: #0a2a5e;
+    --oro-claro: #fff6d6;
+    --oro-suave: #f6dc8a;
+    --oro: #edbb00;
+
+    --texto: #1f2a44;          /* más oscuro: mejor lectura */
+    --texto-suave: #55607a;    /* cumple contraste mínimo sobre blanco */
+    --blanco: #ffffff;
+    --error: #d64b7f;
+    --exito: #2f7d6c;
+
+    --radio: 14px;
+    --sombra: 0 18px 45px rgba(0, 77, 152, 0.22);
+  }
+
+  /* ---------------------------------------------------------------
+     A.2 BASE
+     --------------------------------------------------------------- */
+  * { box-sizing: border-box; }
+
+  /* ---- FONDO DE LA PÁGINA (igual que la lista de jugadores) ----
+     Degradado en los colores del equipo: azul → grana.
+     Encima van las pelotas de fútbol flotando (ver #fondoPelotas).      */
+  html {
+    min-height: 100%;
+    background: linear-gradient(135deg, var(--azul) 0%, var(--grana) 100%);
+    background-attachment: fixed;                    /* el fondo no se mueve al bajar */
+  }
+
+  body {
+    margin: 0;
+    font-family: "Nunito", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    color: var(--texto);
+  }
+
+  /* Capa decorativa con pelotas de fútbol flotando en el fondo
+     (la misma de la lista de jugadores) */
+  #fondoPelotas {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+  }
+  #fondoPelotas span {
+    position: absolute;
+    opacity: 0.22;
+    line-height: 1;
+    animation: flotarPelota 9s ease-in-out infinite;
+  }
+  @keyframes flotarPelota {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-30px) rotate(180deg); }
+  }
+
+  /* Cada pantalla aparece con un desvanecido suave */
+  @keyframes aparecer {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* Si la persona prefiere menos movimiento, se quitan las animaciones */
+  @media (prefers-reduced-motion: reduce) {
+    #fondoPelotas span, .vista { animation: none !important; }
+  }
+
+  a { color: var(--azul-oscuro); font-weight: 700; text-decoration: none; cursor: pointer; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible { outline: 3px solid var(--oro); outline-offset: 2px; border-radius: 4px; }
+
+  /* ---------------------------------------------------------------
+     A.3 DISTRIBUCIÓN: panel de marca (izquierda) + formulario (derecha)
+     --------------------------------------------------------------- */
+  .pagina {
+    display: grid;
+    grid-template-columns: 380px minmax(0, 560px);
+    justify-content: center;
+    align-items: start;
+    gap: 28px;
+    padding: 32px 16px 40px;
+    position: relative;   /* queda encima de las pelotas del fondo */
+    z-index: 1;
+  }
+  .columna { display: grid; gap: 20px; min-width: 0; }
+
+  @media (max-width: 1000px) {
+    .pagina { grid-template-columns: minmax(0, 560px); gap: 20px; padding-top: 16px; }
+  }
+
+  /* ---------------------------------------------------------------
+     A.4 PANEL DE MARCA
+     --------------------------------------------------------------- */
+  .panel-marca {
+    position: sticky;
+    top: 32px;
+    color: var(--blanco);
+    border-radius: 26px;
+    padding: 36px 32px 28px;
+    background:
+      radial-gradient(circle at 85% 10%, rgba(255, 255, 255, .25) 0, transparent 35%),
+      linear-gradient(160deg, var(--grana) 0%, var(--azul) 65%, var(--azul-oscuro) 100%);
+    border: 2px solid rgba(255, 255, 255, .35);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .3);
+  }
+
+  .marca { display: flex; align-items: center; gap: 14px; }
+  .marca svg { width: 60px; height: 60px; flex: 0 0 auto; filter: drop-shadow(0 8px 16px rgba(10, 42, 94, .35)); }
+  .marca-nombre { margin: 0; font-size: 1.8rem; font-weight: 800; line-height: 1.1; }
+  .marca-nombre span { font-weight: 600; opacity: .9; }
+  .marca-lema { margin: 4px 0 0; font-size: .95rem; opacity: .92; }
+
+  .panel-titulo { margin: 34px 0 10px; font-size: 1.5rem; font-weight: 800; line-height: 1.25; color: var(--blanco); }
+  .panel-texto { margin: 0 0 24px; line-height: 1.55; opacity: .95; }
+
+  .beneficios { list-style: none; padding: 0; margin: 0 0 28px; display: grid; gap: 12px; }
+  .beneficios li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: var(--radio);
+    background: rgba(255, 255, 255, .18);
+    font-weight: 600;
+  }
+  .beneficios svg { width: 22px; height: 22px; flex: 0 0 auto; }
+
+  .panel-pie { margin: 0; font-size: .78rem; opacity: .85; }
+
+  /* En pantallas pequeñas el panel queda como un encabezado compacto */
+  @media (max-width: 1000px) {
+    .panel-marca { position: static; padding: 20px 22px; }
+    .marca { justify-content: center; }
+    .panel-titulo, .panel-texto, .beneficios, .panel-pie { display: none; }
+  }
+
+  /* ---------------------------------------------------------------
+     A.5 TARJETA PRINCIPAL
+     --------------------------------------------------------------- */
+  .tarjeta {
+    background: var(--blanco);
+    border-radius: 26px;
+    padding: 32px 32px 26px;
+    box-shadow: var(--sombra);
+  }
+  @media (max-width: 560px) { .tarjeta { padding: 24px 18px 20px; } }
+
+  /* Solo se muestra una pantalla a la vez */
+  .vista { animation: aparecer .35s ease-out; }
+  .vista[hidden] { display: none; }
+
+  .titulo { text-align: center; margin-bottom: 22px; }
+  h1 { margin: 0; font-size: 1.55rem; font-weight: 800; color: var(--azul-oscuro); }
+  h2 { margin: 0; font-size: 1.05rem; color: var(--azul-oscuro); }
+  .subtitulo { margin: 6px 0 0; color: var(--texto-suave); font-size: .95rem; }
+  .obligatorio { color: var(--grana); }
+
+  /* ---------------------------------------------------------------
+     A.6 FORMULARIOS
+     --------------------------------------------------------------- */
+  fieldset {
+    border: 1px solid var(--azul-suave);
+    border-radius: 18px;
+    padding: 18px 18px 6px;
+    margin: 0 0 18px;
+    background: var(--azul-claro);
+    min-width: 0;
+  }
+  legend {
+    padding: 3px 12px;
+    font-weight: 800;
+    font-size: .82rem;
+    color: var(--blanco);
+    background: var(--azul);
+    border-radius: 20px;
+  }
+
+  .campo { margin-bottom: 12px; }
+  label { display: block; font-weight: 700; font-size: .92rem; margin-bottom: 6px; }
+
+  /* Dos campos en la misma fila (se apilan en pantallas pequeñas) */
+  .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .fila { grid-template-columns: 1fr; } }
+
+  /* Select + input, o input + botón del ojo en una sola línea */
+  .grupo { display: flex; gap: 8px; }
+  .grupo input { flex: 1; min-width: 0; }
+  .grupo select { flex: 0 0 auto; width: auto; }
+
+  input, select {
+    width: 100%;
+    padding: 11px 14px;
+    font-family: inherit;
+    font-size: 1rem;
+    color: var(--texto);
+    background: var(--blanco);
+    border: 2px solid var(--azul-suave);
+    border-radius: var(--radio);
+    transition: border-color .2s, box-shadow .2s;
+  }
+  input::placeholder { color: #8a93a8; }
+
+  /* Campo activo: borde azul con brillo grana */
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--azul);
+    box-shadow: 0 0 0 4px var(--grana-claro);
+  }
+
+  /* Campo con error */
+  input.invalido { border-color: var(--error); background: #fff6f9; }
+
+  /* Código de 6 dígitos (padding-left compensa el espacio del último dígito) */
+  .codigo { text-align: center; font-size: 1.6rem; letter-spacing: 10px; padding-left: 24px; font-variant-numeric: tabular-nums; }
+
+  /* Casillas (2FA y términos) */
+  .casilla {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    margin: 10px 0 2px;
+    cursor: pointer;
+  }
+  .casilla input { width: 18px; height: 18px; accent-color: var(--azul); flex: 0 0 auto; }
+
+  .ayuda { display: block; color: var(--texto-suave); font-size: .8rem; margin-top: 4px; }
+  .error { display: block; color: var(--error); font-size: .82rem; font-weight: 600; margin-top: 4px; min-height: 1em; }
+
+  /* Requisitos de la contraseña: se marcan con ✓ al cumplirse */
+  .requisitos {
+    list-style: none;
+    padding: 0;
+    margin: 8px 0 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+    font-size: .8rem;
+    color: var(--texto-suave);
+  }
+  @media (max-width: 560px) { .requisitos { grid-template-columns: 1fr; } }
+  .requisitos li { display: flex; align-items: center; gap: 6px; transition: color .2s; }
+  .requisitos li::before {
+    content: "";
+    width: 14px; height: 14px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    border: 2px solid var(--azul-suave);
+    background: var(--blanco);
+  }
+  .requisitos li.cumple { color: var(--exito); font-weight: 700; }
+  .requisitos li.cumple::before {
+    border-color: var(--exito);
+    background: var(--exito) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 8.2 2.6 2.6L12 5.4' fill='none' stroke='%23fff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 12px no-repeat;
+  }
+
+  /* ---------------------------------------------------------------
+     A.7 BOTONES
+     --------------------------------------------------------------- */
+  .boton {
+    width: 100%;
+    margin-top: 12px;
+    padding: 13px;
+    font-family: inherit;
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--blanco);
+    border: none;
+    border-radius: var(--radio);
+    cursor: pointer;
+    background: linear-gradient(90deg, var(--grana), var(--azul));
+    box-shadow: 0 8px 20px rgba(0, 77, 152, .35);
+    transition: transform .15s, box-shadow .2s, opacity .2s;
+  }
+  .boton:hover { transform: translateY(-2px); box-shadow: 0 12px 26px rgba(0, 77, 152, .45); }
+  .boton:active { transform: translateY(0); box-shadow: 0 4px 10px rgba(0, 77, 152, .3); }
+  .boton:focus-visible { outline: 3px solid var(--oro); outline-offset: 3px; }
+  .boton:disabled { opacity: .55; cursor: not-allowed; transform: none; box-shadow: none; }
+  .boton-suave { background: var(--azul-suave); color: var(--azul-oscuro); box-shadow: none; }
+  .boton-suave:hover { box-shadow: none; background: #b3cbec; }
+
+  /* Botón del ojo para ver u ocultar la contraseña (emoji 👁 / 🙈) */
+  .ojo {
+    flex: 0 0 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    border: 2px solid var(--azul-suave);
+    border-radius: var(--radio);
+    background: var(--oro-claro);
+    cursor: pointer;
+    transition: background .2s, transform .15s;
+  }
+  .ojo:hover { background: var(--oro-suave); transform: scale(1.05); }
+  .ojo:focus-visible { outline: 3px solid var(--oro); outline-offset: 2px; }
+
+  /* ---------------------------------------------------------------
+     A.8 MEDIDOR DE FORTALEZA (el color cambia con el nivel)
+     --------------------------------------------------------------- */
+  .medidor-linea { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+  .medidor { flex: 1; height: 8px; border-radius: 8px; background: var(--azul-suave); overflow: hidden; }
+  .medidor-barra { height: 100%; width: 0; border-radius: 8px; transition: width .3s, background .3s; }
+  .medidor-barra[data-nivel="1"] { background: var(--grana); }
+  .medidor-barra[data-nivel="2"] { background: var(--grana-suave); }
+  .medidor-barra[data-nivel="3"] { background: var(--oro); }
+  .medidor-barra[data-nivel="4"] { background: var(--azul); }
+  .medidor-texto { min-width: 74px; text-align: right; font-size: .8rem; font-weight: 700; color: var(--texto-suave); }
+
+  /* ---------------------------------------------------------------
+     A.9 AVISOS GENERALES
+     --------------------------------------------------------------- */
+  .aviso { padding: 12px 16px; border-radius: var(--radio); font-size: .92rem; font-weight: 600; margin: 0 0 16px; }
+  .aviso[hidden] { display: none; }
+  .aviso.error { background: var(--grana-claro); color: var(--error); border: 1px solid var(--grana-suave); }
+  .aviso.exito { background: var(--oro-claro); color: var(--exito); border: 1px solid var(--oro-suave); }
+
+  .enlaces { text-align: center; margin-top: 18px; font-size: .92rem; line-height: 1.9; color: var(--texto-suave); }
+
+  /* Datos del usuario en la bienvenida */
+  .datos { list-style: none; padding: 0; margin: 0 0 8px; }
+  .datos li {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 11px 16px;
+    margin-bottom: 8px;
+    border-radius: var(--radio);
+    background: var(--azul-claro);
+  }
+  .datos span { color: var(--texto-suave); }
+  .datos strong { text-align: right; word-break: break-word; }
+
+  /* ---------------------------------------------------------------
+     A.10 BANDEJA DE CORREO SIMULADA (plegable)
+     --------------------------------------------------------------- */
+  .bandeja {
+    background: rgba(255, 255, 255, .92);
+    border-radius: 20px;
+    box-shadow: var(--sombra);
+    overflow: hidden;
+  }
+  .bandeja summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px;
+    cursor: pointer;
+    list-style: none;
+    font-weight: 800;
+    color: var(--azul-oscuro);
+  }
+  .bandeja summary::-webkit-details-marker { display: none; }
+  .bandeja summary svg { width: 22px; height: 22px; flex: 0 0 auto; }
+  .bandeja summary::after {
+    content: "▾";
+    margin-left: auto;
+    transition: transform .2s;
+  }
+  .bandeja[open] summary::after { transform: rotate(180deg); }
+  .bandeja summary:focus-visible { outline: 3px solid var(--oro); outline-offset: -3px; border-radius: 20px; }
+
+  .contador {
+    min-width: 24px;
+    padding: 1px 8px;
+    border-radius: 20px;
+    background: var(--grana);
+    color: var(--blanco);
+    font-size: .78rem;
+    text-align: center;
+  }
+  .contador[data-vacio="true"] { background: var(--azul-suave); color: var(--azul-oscuro); }
+
+  .bandeja-cuerpo { padding: 0 20px 20px; }
+  .bandeja .ayuda { margin: 0 0 12px; }
+  .bandeja-vacia { color: var(--texto-suave); font-size: .9rem; text-align: center; padding: 12px 0; }
+
+  .correo {
+    background: var(--blanco);
+    border: 1px solid var(--oro-suave);
+    border-left: 4px solid var(--oro);
+    border-radius: var(--radio);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    font-size: .85rem;
+  }
+  .correo-asunto { font-weight: 800; color: var(--azul-oscuro); }
+  .correo-meta { color: var(--texto-suave); font-size: .78rem; margin: 2px 0 6px; word-break: break-word; }
+  .correo-texto { margin: 0; }
+  .correo-codigo { font-size: 1.3rem; font-weight: 800; letter-spacing: 6px; color: var(--grana); }
+  .correo .boton { padding: 9px; font-size: .88rem; margin-top: 8px; }
+</style>
+</head>
+
+<body>
+<!-- =================================================================
+     B. ESTRUCTURA (HTML)
+     ================================================================= -->
+  <!-- Pelotas decorativas del fondo (las mismas de la lista de jugadores) -->
+  <div id="fondoPelotas" aria-hidden="true">
+    <span style="top:4%;  left:2%;  font-size:3.5rem; animation-delay:0s;">⚽</span>
+    <span style="top:18%; left:12%; font-size:2rem;   animation-delay:-2s;">⚽</span>
+    <span style="top:38%; left:4%;  font-size:4.5rem; animation-delay:-4s;">⚽</span>
+    <span style="top:62%; left:10%; font-size:2.5rem; animation-delay:-1s;">⚽</span>
+    <span style="top:82%; left:3%;  font-size:3rem;   animation-delay:-6s;">⚽</span>
+    <span style="top:8%;  left:88%; font-size:2.5rem; animation-delay:-3s;">⚽</span>
+    <span style="top:26%; left:93%; font-size:4rem;   animation-delay:-5s;">⚽</span>
+    <span style="top:48%; left:85%; font-size:2rem;   animation-delay:-7s;">⚽</span>
+    <span style="top:68%; left:92%; font-size:3.5rem; animation-delay:-2.5s;">⚽</span>
+    <span style="top:88%; left:84%; font-size:2.5rem; animation-delay:-4.5s;">⚽</span>
+    <span style="top:92%; left:45%; font-size:2rem;   animation-delay:-3.5s;">⚽</span>
+    <span style="top:1%;  left:50%; font-size:1.8rem; animation-delay:-5.5s;">⚽</span>
+  </div>
+
+  <div class="pagina">
+
+    <!-- B.1 PANEL DE MARCA: logo, mensaje y beneficios de la página -->
+    <aside class="panel-marca">
+      <div class="marca">
+        <!-- Logo: balón con franjas azul y grana + estrella dorada
+             (dibujo propio; no es el escudo del club) -->
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <defs>
+            <clipPath id="recorte-logo"><circle cx="30" cy="34" r="20"/></clipPath>
+          </defs>
+          <!-- Fondo blanco redondeado -->
+          <rect x="2" y="2" width="60" height="60" rx="16" fill="#ffffff"/>
+          <!-- Balón con franjas azul y grana -->
+          <g clip-path="url(#recorte-logo)">
+            <rect x="10" y="14" width="40" height="40" fill="#004d98"/>
+            <path d="M18 14h8v40h-8zM34 14h8v40h-8z" fill="#a50044"/>
+          </g>
+          <circle cx="30" cy="34" r="20" fill="none" stroke="#edbb00" stroke-width="3"/>
+          <!-- Pentágono blanco del balón -->
+          <path d="m30 27 6.7 4.9-2.6 7.9h-8.2l-2.6-7.9z" fill="#ffffff"/>
+          <!-- Estrella dorada -->
+          <path d="M51 6l2.2 5.3L58.5 13l-5.3 2.2L51 20.5l-2.2-5.3L43.5 13l5.3-1.7z" fill="#edbb00"/>
+        </svg>
+        <div>
+          <p class="marca-nombre">Soccer Players <span>FC Barcelona</span></p>
+          <p class="marca-lema">La plantilla azulgrana en un solo lugar</p>
+        </div>
+      </div>
+
+      <h2 class="panel-titulo">Tu acceso a la plantilla del Barça</h2>
+      <p class="panel-texto">Consulta, agrega y edita los jugadores del primer equipo: posición, edad, nacionalidad y foto.</p>
+
+      <ul class="beneficios">
+        <li>
+          <!-- Grupo de personas -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.3 3-5 6-5s5.4 1.7 6 5"/><circle cx="17" cy="9" r="2.6"/><path d="M16 14.2c2.6.2 4.4 1.8 5 4.8"/></svg>
+          Consulta la plantilla completa
+        </li>
+        <li>
+          <!-- Lápiz para editar -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>
+          Agrega y edita jugadores
+        </li>
+        <li>
+          <!-- Escudo con chulo -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 20 6v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg>
+          Tu cuenta protegida con verificación en dos pasos
+        </li>
+      </ul>
+
+      <p class="panel-pie">© 2026 Soccer Players · Proyecto académico, sin relación oficial con el club</p>
+    </aside>
+
+    <div class="columna">
+      <main class="tarjeta">
+
+        <!-- Aviso general (éxito o error) que comparten todas las pantallas -->
+        <p id="aviso" class="aviso" role="status" hidden></p>
+
+        <!-- =========================================================
+             B.2 PANTALLA: REGISTRO
+             ========================================================= -->
+        <section id="vista-registro" class="vista">
+          <div class="titulo">
+            <h1>Crea tu cuenta</h1>
+            <p class="subtitulo">Entra a la plantilla, agrega jugadores y sigue al equipo.<br>Los campos con <span class="obligatorio">*</span> son obligatorios</p>
+          </div>
+
+          <!-- novalidate: los mensajes de error los maneja JavaScript -->
+          <form id="form-registro" novalidate>
+            <fieldset>
+              <legend>Datos personales</legend>
+
+              <div class="campo">
+                <label for="reg-nombre">Nombre completo <span class="obligatorio">*</span></label>
+                <input id="reg-nombre" type="text" maxlength="50" autocomplete="name" placeholder="Ej: María José O'Brien">
+                <small id="error-reg-nombre" class="error"></small>
+              </div>
+
+              <div class="fila">
+                <div class="campo">
+                  <label for="reg-fecha">Fecha de nacimiento <span class="obligatorio">*</span></label>
+                  <input id="reg-fecha" type="date" autocomplete="bday">
+                  <small id="error-reg-fecha" class="error"></small>
+                </div>
+
+                <div class="campo">
+                  <label for="reg-telefono">Teléfono <span class="obligatorio">*</span></label>
+                  <div class="grupo">
+                    <select id="reg-pais" aria-label="País"></select>
+                    <input id="reg-telefono" type="tel" inputmode="numeric" maxlength="10" placeholder="3001234567">
+                  </div>
+                  <small id="error-reg-telefono" class="error"></small>
+                </div>
+              </div>
+
+              <div class="campo">
+                <label for="reg-documento">Documento de identidad <span class="obligatorio">*</span></label>
+                <div class="grupo">
+                  <select id="reg-tipo" aria-label="Tipo de documento"></select>
+                  <input id="reg-documento" type="text" inputmode="numeric" maxlength="10" placeholder="Solo números">
+                </div>
+                <small id="error-reg-documento" class="error"></small>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Datos de la cuenta</legend>
+
+              <div class="campo">
+                <label for="reg-correo">Correo electrónico <span class="obligatorio">*</span></label>
+                <input id="reg-correo" type="email" autocomplete="email" placeholder="nombre@dominio.com">
+                <small id="error-reg-correo" class="error"></small>
+              </div>
+
+              <div class="campo">
+                <label for="reg-usuario">Nombre de usuario <span class="obligatorio">*</span></label>
+                <input id="reg-usuario" type="text" maxlength="20" autocomplete="username" placeholder="De 3 a 20: letras, números, - o _">
+                <small id="error-reg-usuario" class="error"></small>
+              </div>
+
+              <div class="campo">
+                <label for="reg-contrasena">Contraseña <span class="obligatorio">*</span></label>
+                <div class="grupo">
+                  <input id="reg-contrasena" type="password" autocomplete="new-password">
+                  <button type="button" class="ojo" data-campo="reg-contrasena" aria-label="Mostrar contraseña"></button>
+                </div>
+                <div class="medidor-linea">
+                  <div class="medidor"><div id="reg-medidor" class="medidor-barra"></div></div>
+                  <small id="reg-medidor-texto" class="medidor-texto"></small>
+                </div>
+                <ul id="reg-requisitos" class="requisitos">
+                  <li data-regla="largo">Entre 8 y 12 caracteres</li>
+                  <li data-regla="letras">No solo números</li>
+                  <li data-regla="caracteres">Sin &lt; &gt; ´ " \ &amp;</li>
+                  <li data-regla="personal">Sin tu nombre, usuario ni correo</li>
+                </ul>
+                <small id="error-reg-contrasena" class="error"></small>
+              </div>
+
+              <div class="campo">
+                <label for="reg-confirmacion">Confirmar contraseña <span class="obligatorio">*</span></label>
+                <div class="grupo">
+                  <input id="reg-confirmacion" type="password" autocomplete="new-password">
+                  <button type="button" class="ojo" data-campo="reg-confirmacion" aria-label="Mostrar contraseña"></button>
+                </div>
+                <small id="error-reg-confirmacion" class="error"></small>
+              </div>
+            </fieldset>
+
+            <label class="casilla">
+              <input id="reg-dospasos" type="checkbox">
+              Activar verificación en dos pasos (código al correo)
+            </label>
+
+            <label class="casilla">
+              <input id="reg-terminos" type="checkbox">
+              <span>Acepto los términos y condiciones de Soccer Players <span class="obligatorio">*</span></span>
+            </label>
+            <small id="error-reg-terminos" class="error"></small>
+
+            <button id="btn-registro" type="submit" class="boton">Crear mi cuenta</button>
+          </form>
+
+          <p class="enlaces">¿Ya tienes cuenta? <a href="#" data-ir="login">Inicia sesión</a></p>
+        </section>
+
+        <!-- =========================================================
+             B.3 PANTALLA: INICIO DE SESIÓN
+             ========================================================= -->
+        <section id="vista-login" class="vista" hidden>
+          <div class="titulo">
+            <h1>¡Hola de nuevo!</h1>
+            <p class="subtitulo">La plantilla azulgrana te espera</p>
+          </div>
+
+          <form id="form-login" novalidate>
+            <div class="campo">
+              <label for="log-correo">Correo electrónico</label>
+              <input id="log-correo" type="email" autocomplete="email" placeholder="nombre@dominio.com">
+              <small id="error-log-correo" class="error"></small>
+            </div>
+
+            <div class="campo">
+              <label for="log-contrasena">Contraseña</label>
+              <div class="grupo">
+                <input id="log-contrasena" type="password" autocomplete="current-password">
+                <button type="button" class="ojo" data-campo="log-contrasena" aria-label="Mostrar contraseña"></button>
+              </div>
+              <small id="error-log-contrasena" class="error"></small>
+            </div>
+
+            <button id="btn-login" type="submit" class="boton">Entrar</button>
+          </form>
+
+          <p class="enlaces">
+            <a href="#" data-ir="recuperar">¿Olvidaste tu contraseña?</a><br>
+            ¿No tienes cuenta? <a href="#" data-ir="registro">Regístrate</a>
+          </p>
+        </section>
+
+        <!-- =========================================================
+             B.4 PANTALLA: CÓDIGO DE VERIFICACIÓN (2FA)
+             ========================================================= -->
+        <section id="vista-codigo" class="vista" hidden>
+          <div class="titulo">
+            <h1 id="cod-titulo">Verificación en dos pasos</h1>
+            <p class="subtitulo">Escribe el código de 6 dígitos que enviamos a <strong id="cod-correo"></strong></p>
+          </div>
+
+          <form id="form-codigo" novalidate>
+            <div class="campo">
+              <label for="cod-codigo">Código de verificación</label>
+              <input id="cod-codigo" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" class="codigo">
+              <small id="error-cod-codigo" class="error"></small>
+            </div>
+            <button id="btn-codigo" type="submit" class="boton">Verificar</button>
+          </form>
+
+          <p class="enlaces"><a href="#" id="btn-reenviar">¿No llegó? Enviar otro código</a></p>
+
+          <p class="enlaces"><a href="#" data-ir="login">Volver a iniciar sesión</a></p>
+        </section>
+
+        <!-- =========================================================
+             B.5 PANTALLA: RECUPERAR CONTRASEÑA
+             ========================================================= -->
+        <section id="vista-recuperar" class="vista" hidden>
+          <div class="titulo">
+            <h1>Recuperar contraseña</h1>
+            <p class="subtitulo">Te enviaremos un código de 6 dígitos para crear una nueva contraseña</p>
+          </div>
+
+          <form id="form-recuperar" novalidate>
+            <div class="campo">
+              <label for="rec-correo">Correo electrónico</label>
+              <input id="rec-correo" type="email" autocomplete="email" placeholder="nombre@dominio.com">
+              <small id="error-rec-correo" class="error"></small>
+            </div>
+            <button id="btn-recuperar" type="submit" class="boton">Enviar código</button>
+          </form>
+
+          <p class="enlaces"><a href="#" data-ir="login">Volver a iniciar sesión</a></p>
+        </section>
+
+        <!-- =========================================================
+             B.6 PANTALLA: NUEVA CONTRASEÑA
+             ========================================================= -->
+        <section id="vista-restablecer" class="vista" hidden>
+          <div class="titulo">
+            <h1>Nueva contraseña</h1>
+            <p class="subtitulo">Escribe el código que enviamos a <strong id="res-correo"></strong> y tu nueva contraseña</p>
+          </div>
+
+          <form id="form-restablecer" novalidate>
+            <div class="campo">
+              <label for="res-codigo">Código de verificación</label>
+              <input id="res-codigo" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" class="codigo">
+              <small id="error-res-codigo" class="error"></small>
+            </div>
+            <div class="campo">
+              <label for="res-contrasena">Nueva contraseña</label>
+              <div class="grupo">
+                <input id="res-contrasena" type="password" autocomplete="new-password">
+                <button type="button" class="ojo" data-campo="res-contrasena" aria-label="Mostrar contraseña"></button>
+              </div>
+              <div class="medidor-linea">
+                <div class="medidor"><div id="res-medidor" class="medidor-barra"></div></div>
+                <small id="res-medidor-texto" class="medidor-texto"></small>
+              </div>
+              <ul id="res-requisitos" class="requisitos">
+                <li data-regla="largo">Entre 8 y 12 caracteres</li>
+                <li data-regla="letras">No solo números</li>
+                <li data-regla="caracteres">Sin &lt; &gt; ´ " \ &amp;</li>
+              </ul>
+              <small id="error-res-contrasena" class="error"></small>
+            </div>
+
+            <div class="campo">
+              <label for="res-confirmacion">Confirmar contraseña</label>
+              <div class="grupo">
+                <input id="res-confirmacion" type="password" autocomplete="new-password">
+                <button type="button" class="ojo" data-campo="res-confirmacion" aria-label="Mostrar contraseña"></button>
+              </div>
+              <small id="error-res-confirmacion" class="error"></small>
+            </div>
+
+            <button id="btn-restablecer" type="submit" class="boton">Guardar contraseña</button>
+          </form>
+
+          <p class="enlaces"><a href="#" data-ir="recuperar">Pedir un código nuevo</a></p>
+        </section>
+
+        <!-- =========================================================
+             B.7 PANTALLA: BIENVENIDA (solo con sesión iniciada)
+             ========================================================= -->
+        <section id="vista-bienvenida" class="vista" hidden>
+          <div class="titulo">
+            <h1>¡Hola, <span id="bien-nombre"></span>!</h1>
+            <p class="subtitulo">Ya puedes ver y gestionar la plantilla</p>
+          </div>
+
+          <ul class="datos">
+            <li><span>Usuario</span><strong id="bien-usuario"></strong></li>
+            <li><span>Correo</span><strong id="bien-correo"></strong></li>
+            <li><span>Teléfono</span><strong id="bien-telefono"></strong></li>
+            <li><span>Documento</span><strong id="bien-documento"></strong></li>
+            <li><span>Verificación en dos pasos</span><strong id="bien-dospasos"></strong></li>
+            <li><span>Términos aceptados</span><strong id="bien-terminos"></strong></li>
+          </ul>
+
+          <a href="index.html" class="boton" style="display:block; text-align:center; text-decoration:none;">Ver la plantilla →</a>
+          <button id="btn-salir" type="button" class="boton boton-suave">Cerrar sesión</button>
+        </section>
+      </main>
+
+    </div>
+  </div>
+
+<!-- =================================================================
+     C. CÓDIGO (JavaScript)
+     ================================================================= -->
+<script>
+'use strict';
+
+/* =================================================================
+   PARTE 1. REGLAS DE VALIDACIÓN
+   -----------------------------------------------------------------
+   Las usan el cliente (Parte 5) y el servidor (Parte 3).
+   Cada función devuelve '' si el dato está bien o el mensaje de error.
+   ================================================================= */
+
+// 1.1 Configuración: si una regla cambia, se modifica solo aquí
+const REGLAS = {
+  edadMinima: 14,
+  contrasenaMin: 8,
+  contrasenaMax: 12,
+  paises: {
+    CO: { nombre: 'Colombia', indicativo: '+57', digitos: 10 },
+    EC: { nombre: 'Ecuador', indicativo: '+593', digitos: 9 },
+    MX: { nombre: 'México', indicativo: '+52', digitos: 10 },
+    PE: { nombre: 'Perú', indicativo: '+51', digitos: 9 }
+  },
+  documentos: {
+    CC: { nombre: 'Cédula de ciudadanía', min: 6, max: 10 },
+    TI: { nombre: 'Tarjeta de identidad', min: 6, max: 10 },
+    CE: { nombre: 'Cédula de extranjería', min: 6, max: 10 },
+    PPT: { nombre: 'Permiso por protección temporal', min: 6, max: 10 }
+  }
+};
+
+// 1.2 Mensajes de error (los sugeridos por la actividad)
+const MSG = {
+  nombre: 'Escribe un nombre válido de 2 a 50 letras',
+  correo: 'Ingresa un correo válido, por ejemplo nombre@dominio.com',
+  usuario: 'Usa de 3 a 20 letras, números, - o _',
+  telefono: (n) => `Ingresa un número de ${n} dígitos`,
+  fecha: 'Ingresa una fecha de nacimiento real',
+  fechaFutura: 'La fecha no puede ser futura',
+  edad: (n) => `Debes tener al menos ${n} años`,
+  documento: (min, max) => `El documento debe tener entre ${min} y ${max} dígitos`,
+  terminos: 'Debes aceptar los términos para continuar',
+  claveVacia: 'Ingresa una contraseña',
+  claveLargo: (min, max) => `La contraseña debe tener entre ${min} y ${max} caracteres`,
+  claveCaracteres: 'No uses estos caracteres: < > ´ " \\ &',
+  claveSoloNumeros: 'La contraseña no puede tener solo números',
+  claveComun: 'Esa contraseña es muy común. Elige otra',
+  clavePersonal: 'La contraseña no puede contener tu nombre, usuario o correo',
+  confirmar: 'Las contraseñas no coinciden',
+  obligatorio: 'Este campo es obligatorio'
+};
+
+// 1.3 Expresiones regulares
+const RE_NOMBRE = /^\p{L}+(?:[ '’-]\p{L}+)*$/u;                         // José, O'Brien, Ana-María
+const RE_CORREO = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/; // texto@dominio.ext
+const RE_USUARIO = /^[A-Za-z0-9_-]{3,20}$/;                              // letras, números, - y _
+const RE_DIGITOS = /^\d+$/;                                              // solo dígitos
+const RE_PROHIBIDOS = /[<>´"“”\\&]/;                                     // no aceptados en la contraseña
+
+// 1.4 Contraseñas comunes o filtradas (un Set busca al instante)
+const CLAVES_COMUNES = new Set([
+  '123456', '1234567', '12345678', '123456789', '1234567890', '111111', '000000',
+  '123123', '654321', 'password', 'password1', 'password123', 'passw0rd',
+  'qwerty', 'qwerty123', 'qwertyuiop', 'abc123', 'abcd1234', 'abcdefgh',
+  'asdfghjkl', 'iloveyou', 'admin', 'admin123', 'welcome', 'letmein',
+  'contrasena', 'clave123', 'colombia', 'colombia1', 'teamo123', 'tequiero'
+]);
+
+// 1.5 Funciones de apoyo
+const limpiar = (valor) => (typeof valor === 'string' ? valor.trim() : '');      // quita espacios
+const normalizar = (texto) =>                                                    // minúsculas y sin tildes
+  String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+// ¿La contraseña contiene el nombre, el usuario o el correo de la persona?
+// (se ignoran fragmentos de menos de 3 letras). La usan la validación y la lista de requisitos.
+function contieneDatosPersonales(clave, persona = {}) {
+  const clavePlana = normalizar(clave);
+  const datosPersonales = [
+    ...normalizar(persona.nombre).split(/[\s'’-]+/),
+    normalizar(persona.usuario),
+    normalizar(persona.correo).split('@')[0]
+  ].filter((texto) => texto.length >= 3);
+  return datosPersonales.some((texto) => clavePlana.includes(texto));
+}
+
+// 1.6 Validación de cada campo
+function validarNombre(nombre) {
+  const ok = nombre.length >= 2 && nombre.length <= 50 && RE_NOMBRE.test(nombre);
+  return ok ? '' : MSG.nombre;
+}
+
+function validarCorreo(correo) {
+  return correo.length <= 50 && RE_CORREO.test(correo) ? '' : MSG.correo;
+}
+
+function validarUsuario(usuario) {
+  return RE_USUARIO.test(usuario) ? '' : MSG.usuario;
+}
+
+function validarTelefono(telefono, pais) {
+  const regla = REGLAS.paises[pais];
+  const ok = RE_DIGITOS.test(telefono) && telefono.length === regla.digitos;
+  return ok ? '' : MSG.telefono(regla.digitos);
+}
+
+function validarFecha(texto) {
+  const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(texto);
+  if (!partes) return MSG.fecha;
+
+  const anio = +partes[1], mes = +partes[2], dia = +partes[3];
+  const fecha = new Date(anio, mes - 1, dia);
+
+  // Fecha real: si JavaScript la "corrige" (ej. 30 de febrero), no existe
+  if (fecha.getFullYear() !== anio || fecha.getMonth() !== mes - 1 || fecha.getDate() !== dia) return MSG.fecha;
+
+  // No futura
+  const hoy = new Date();
+  if (fecha > hoy) return MSG.fechaFutura;
+
+  // Edad: restar años y quitar uno si todavía no cumple este año
+  let edad = hoy.getFullYear() - anio;
+  const yaCumplio = hoy.getMonth() > mes - 1 || (hoy.getMonth() === mes - 1 && hoy.getDate() >= dia);
+  if (!yaCumplio) edad--;
+
+  if (edad > 120) return MSG.fecha;
+  if (edad < REGLAS.edadMinima) return MSG.edad(REGLAS.edadMinima);
+  return '';
+}
+
+function validarDocumento(numero, tipo) {
+  const regla = REGLAS.documentos[tipo];
+  const ok = RE_DIGITOS.test(numero) && numero.length >= regla.min && numero.length <= regla.max;
+  return ok ? '' : MSG.documento(regla.min, regla.max);
+}
+
+// Contraseña (guía NIST SP 800-63B + reglas de la actividad).
+// IMPORTANTE: la contraseña NUNCA se limpia con trim; los espacios son parte de ella.
+function validarContrasena(clave, persona = {}) {
+  if (typeof clave !== 'string' || clave === '') return MSG.claveVacia;
+
+  // a) Entre 8 y 12 caracteres
+  if (clave.length < REGLAS.contrasenaMin || clave.length > REGLAS.contrasenaMax) {
+    return MSG.claveLargo(REGLAS.contrasenaMin, REGLAS.contrasenaMax);
+  }
+
+  // b) Sin caracteres prohibidos
+  if (RE_PROHIBIDOS.test(clave)) return MSG.claveCaracteres;
+
+  // b2) No puede ser solo números
+  if (RE_DIGITOS.test(clave)) return MSG.claveSoloNumeros;
+
+  // c) No común ni un solo carácter repetido (aaaaaaaa)
+  const clavePlana = normalizar(clave);
+  if (CLAVES_COMUNES.has(clavePlana) || /^(.)\1+$/.test(clavePlana)) return MSG.claveComun;
+
+  // d) Sin nombre, usuario ni correo de la persona
+  if (contieneDatosPersonales(clave, persona)) return MSG.clavePersonal;
+
+  return '';
+}
+
+function validarConfirmacion(clave, confirmacion) {
+  return clave === confirmacion ? '' : MSG.confirmar;
+}
+
+// 1.7 Medidor de fortaleza (orienta, no es obligatorio). Nivel de 0 a 4.
+function fortaleza(clave, persona) {
+  if (!clave) return { nivel: 0, texto: '' };
+  if (validarContrasena(clave, persona)) return { nivel: 0, texto: 'No válida' };
+
+  let puntos = 0;
+  if (clave.length >= 10) puntos++;                         // más larga
+  if (/[a-z]/.test(clave) && /[A-Z]/.test(clave)) puntos++; // minúsculas y mayúsculas
+  if (/\d/.test(clave)) puntos++;                          // números
+  if (/[^A-Za-z0-9]/.test(clave)) puntos++;                // símbolos o espacios
+
+  const nivel = Math.max(1, puntos);
+  return { nivel, texto: ['', 'Débil', 'Aceptable', 'Fuerte', 'Muy fuerte'][nivel] };
+}
+
+// 1.8 Validar el registro completo: primero LIMPIA y luego VALIDA
+function validarRegistro(entrada = {}) {
+  // Paso 1: limpiar cada campo
+  const pais = limpiar(entrada.pais);
+  const tipo = limpiar(entrada.tipoDocumento);
+  const datos = {
+    nombre: limpiar(entrada.nombre).replace(/\s+/g, ' '),
+    correo: limpiar(entrada.correo).toLowerCase(),        // correo en minúsculas
+    usuario: limpiar(entrada.usuario),
+    pais: REGLAS.paises[pais] ? pais : 'CO',
+    telefono: limpiar(entrada.telefono),
+    fechaNacimiento: limpiar(entrada.fechaNacimiento),
+    tipoDocumento: REGLAS.documentos[tipo] ? tipo : 'CC',
+    documento: limpiar(entrada.documento),
+    contrasena: typeof entrada.contrasena === 'string' ? entrada.contrasena : '',     // sin trim
+    confirmacion: typeof entrada.confirmacion === 'string' ? entrada.confirmacion : '',
+    terminos: entrada.terminos === true,
+    dosPasos: entrada.dosPasos === true
+  };
+
+  // Paso 2: validar
+  const errores = {
+    nombre: validarNombre(datos.nombre),
+    correo: validarCorreo(datos.correo),
+    usuario: validarUsuario(datos.usuario),
+    telefono: validarTelefono(datos.telefono, datos.pais),
+    fechaNacimiento: validarFecha(datos.fechaNacimiento),
+    documento: validarDocumento(datos.documento, datos.tipoDocumento),
+    contrasena: validarContrasena(datos.contrasena, datos),
+    confirmacion: validarConfirmacion(datos.contrasena, datos.confirmacion),
+    terminos: datos.terminos ? '' : MSG.terminos
+  };
+
+  // Paso 3: dejar solo los campos que tienen error
+  Object.keys(errores).forEach((campo) => { if (!errores[campo]) delete errores[campo]; });
+  return { valido: Object.keys(errores).length === 0, errores, datos };
+}
+
+// 1.9 Validar el inicio de sesión: campos obligatorios; trim al correo, NUNCA a la contraseña
+function validarLogin(entrada = {}) {
+  const datos = {
+    correo: limpiar(entrada.correo).toLowerCase(),
+    contrasena: typeof entrada.contrasena === 'string' ? entrada.contrasena : ''
+  };
+  const errores = {};
+  if (!datos.correo) errores.correo = MSG.obligatorio;
+  if (!datos.contrasena) errores.contrasena = MSG.obligatorio;
+  return { valido: Object.keys(errores).length === 0, errores, datos };
+}
+
+
+/* =================================================================
+   PARTE 2. CONEXIÓN CON SUPABASE
+   -----------------------------------------------------------------
+   Supabase Auth guarda las cuentas, protege las contraseñas y envía
+   los correos reales (confirmación, verificación y recuperación).
+   Los datos del fan (nombre, usuario, teléfono, documento...) quedan
+   en la tabla "perfiles", que se llena sola al crear la cuenta.
+   ================================================================= */
+const SUPABASE_URL = 'https://gifnyqivgylqmbeqdjxt.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpZm55cWl2Z3lscW1iZXFkanh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM4Mzk3OTAsImV4cCI6MjEwOTQxNTc5MH0.bG44k140QRnLpA5Gx0oFyC5M3ztkRLzpVE3DKBIvmsk';
+
+// Cuando la persona abre un enlace del correo, Supabase la trae de vuelta a esta
+// página con datos en la dirección (#...&type=signup, recovery o magiclink).
+// Se leen ANTES de crear el cliente, porque el cliente los borra de la dirección.
+const datosEnlace = new URLSearchParams(location.hash.slice(1));
+const tipoEnlace = datosEnlace.get('type');                 // signup, recovery, magiclink
+const errorEnlace = datosEnlace.get('error_description');   // ej: el enlace venció
+
+const clienteSupabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Dirección de esta página: a ella vuelven los enlaces de los correos
+const URL_LOGIN = location.origin + location.pathname;
+
+
+/* =================================================================
+   PARTE 3. SERVIDOR (SUPABASE)
+   -----------------------------------------------------------------
+   Tiene las mismas funciones que el servidor simulado de antes, así
+   que las pantallas (Parte 5) casi no cambian. Antes de llamar a
+   Supabase se vuelven a validar TODOS los datos.
+   Cada función responde { estado, datos }.
+   ================================================================= */
+const Servidor = (() => {
+
+  /* ---------- 3.1 Límites y mensajes ---------- */
+  const MAX_INTENTOS = 5;                     // fallos permitidos
+  const ESPERA = 60 * 1000;                   // bloqueo de 1 minuto tras 5 fallos
+  const MSG_LOGIN = 'Correo o contraseña incorrectos'; // genérico: no dice cuál falló
+  const MSG_RECUPERAR = 'Si el correo está registrado, te enviamos un código de 6 dígitos. Revisa tu correo (también la carpeta de spam).';
+  const MSG_CODIGO = 'El código no es válido o ya venció. Revisa el último correo o pide uno nuevo.';
+
+  const responder = (estado, datos) => ({ estado, datos });
+
+  /* ---------- 3.2 Límite de intentos (5 fallos → esperar 1 minuto) ---------- */
+  // Supabase también tiene sus propios límites; este avisa antes en la página.
+  const intentos = new Map(); // correo → { fallos, bloqueadoHasta }
+
+  function segundosBloqueado(clave) {
+    const r = intentos.get(clave);
+    return r && r.bloqueadoHasta > Date.now() ? Math.ceil((r.bloqueadoHasta - Date.now()) / 1000) : 0;
+  }
+  function registrarFallo(clave) {
+    const r = intentos.get(clave) || { fallos: 0, bloqueadoHasta: 0 };
+    r.fallos++;
+    if (r.fallos >= MAX_INTENTOS) { r.fallos = 0; r.bloqueadoHasta = Date.now() + ESPERA; }
+    intentos.set(clave, r);
+    return segundosBloqueado(clave);
+  }
+
+  /* ---------- 3.3 Errores de Supabase en palabras sencillas ---------- */
+  function traducir(error) {
+    const m = String((error && error.message) || '').toLowerCase();
+    if ((error && error.status === 429) || m.includes('rate limit') || m.includes('security purposes')) {
+      return 'Se enviaron demasiados correos seguidos. Espera unos minutos e intenta de nuevo.';
+    }
+    if (m.includes('not authorized') || m.includes('address not authorized')) {
+      return 'Por ahora Supabase solo envía correos a las direcciones del equipo del proyecto. Usa tu propio correo para probar.';
+    }
+    if (m.includes('failed to fetch') || m.includes('network')) {
+      return 'No hay conexión con Supabase. Revisa tu internet.';
+    }
+    return 'No se pudo completar la operación. Detalle: ' + ((error && error.message) || 'desconocido');
+  }
+
+  /* ---------- 3.4 Leer el perfil del fan que tiene la sesión abierta ---------- */
+  async function leerPerfil() {
+    const { data: { user } } = await clienteSupabase.auth.getUser();
+    if (!user) return null;
+    const { data: perfil } = await clienteSupabase.from('perfiles').select('*').eq('id', user.id).maybeSingle();
+    return { user, perfil: perfil || {} };
+  }
+
+  /* =================================================================
+     3.5 API
+     ================================================================= */
+
+  // ---- REGISTRO ----
+  async function registro(entrada) {
+    // a) Limpiar y validar TODO otra vez
+    const { valido, errores, datos } = validarRegistro(entrada);
+    if (!valido) return responder(400, { mensaje: 'Revisa los campos marcados', errores });
+
+    // b) Usuario y documento no se pueden repetir (lo revisa la base de datos)
+    const { data: libres, error: errorLibres } = await clienteSupabase.rpc('datos_disponibles', {
+      p_usuario: datos.usuario, p_tipo: datos.tipoDocumento, p_documento: datos.documento
+    });
+    if (errorLibres) return responder(500, { mensaje: traducir(errorLibres) });
+
+    const repetidos = {};
+    if (!libres.usuario) repetidos.usuario = 'Ese nombre de usuario ya está en uso';
+    if (!libres.documento) repetidos.documento = 'Ese documento ya está registrado';
+    if (Object.keys(repetidos).length) {
+      return responder(409, { mensaje: 'Algunos datos ya están registrados', errores: repetidos });
+    }
+
+    // c) Crear la cuenta en Supabase. Supabase guarda la contraseña protegida
+    //    y envía el correo de confirmación. Los datos extra van en "data"
+    //    y pasan solos a la tabla perfiles.
+    const { data, error } = await clienteSupabase.auth.signUp({
+      email: datos.correo,
+      password: datos.contrasena,
+      options: {
+        emailRedirectTo: URL_LOGIN,   // el botón del correo trae de vuelta a esta página
+        data: {
+          nombre: datos.nombre,
+          usuario: datos.usuario,
+          telefono: REGLAS.paises[datos.pais].indicativo + datos.telefono, // ej: +573001234567
+          fecha_nacimiento: datos.fechaNacimiento,
+          tipo_documento: datos.tipoDocumento,
+          documento: datos.documento,
+          dos_pasos: datos.dosPasos
+        }
+      }
+    });
+
+    if (error) {
+      const m = error.message.toLowerCase();
+      if (m.includes('already registered')) {
+        return responder(409, { mensaje: 'Algunos datos ya están registrados', errores: { correo: 'Este correo ya está registrado' } });
+      }
+      if (m.includes('database error')) {
+        return responder(409, { mensaje: 'Ese usuario o documento ya está registrado' });
+      }
+      return responder(500, { mensaje: traducir(error) });
+    }
+
+    // Si el correo ya existía, Supabase no da error pero tampoco crea la cuenta
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      return responder(409, { mensaje: 'Algunos datos ya están registrados', errores: { correo: 'Este correo ya está registrado' } });
+    }
+
+    return responder(201, { mensaje: `¡Bienvenid@! Te enviamos un código de 6 dígitos a ${datos.correo} para confirmar tu cuenta (revisa también spam).`, correo: datos.correo });
+  }
+
+  // ---- INICIO DE SESIÓN ----
+  async function login(entrada) {
+    // a) Campos obligatorios
+    const { valido, datos } = validarLogin(entrada);
+    if (!valido) return responder(400, { mensaje: 'Completa el correo y la contraseña' });
+
+    // b) ¿Está bloqueado?
+    let espera = segundosBloqueado(datos.correo);
+    if (espera) return responder(429, { mensaje: `Demasiados intentos. Espera ${espera} segundos.`, espera });
+
+    // c) Supabase revisa el correo y la contraseña
+    const { error } = await clienteSupabase.auth.signInWithPassword({ email: datos.correo, password: datos.contrasena });
+
+    if (error) {
+      const m = error.message.toLowerCase();
+      if (m.includes('not confirmed')) {
+        // Cuenta sin confirmar: se envía un código nuevo para confirmarla
+        const { error: errorReenvio } = await clienteSupabase.auth.resend({ type: 'signup', email: datos.correo });
+        if (errorReenvio && errorReenvio.status === 429) return responder(400, { mensaje: traducir(errorReenvio) });
+        return responder(403, { pideConfirmar: true, correo: datos.correo });
+      }
+      if (error.status === 429) return responder(400, { mensaje: traducir(error) });
+
+      // Contraseña o correo incorrectos: sumar intento y mensaje GENÉRICO
+      espera = registrarFallo(datos.correo);
+      if (espera) return responder(429, { mensaje: `Demasiados intentos. Espera ${espera} segundos.`, espera });
+      return responder(401, { mensaje: MSG_LOGIN });
+    }
+    intentos.delete(datos.correo); // entró bien: se reinician los fallos
+
+    // d) Verificación en dos pasos: SOLO la primera vez que se inicia sesión.
+    //    Se cierra la sesión y Supabase envía un código de 6 dígitos al correo.
+    const { perfil } = (await leerPerfil()) || { perfil: {} };
+    if (perfil.dos_pasos && !perfil.dos_pasos_verificado) {
+      await clienteSupabase.auth.signOut();
+      const { error: errorCodigo } = await clienteSupabase.auth.signInWithOtp({
+        email: datos.correo,
+        options: { shouldCreateUser: false }
+      });
+      if (errorCodigo) return responder(400, { mensaje: traducir(errorCodigo) });
+      return responder(200, { pideCodigo: true, correo: datos.correo });
+    }
+
+    // e) Todo bien: la sesión queda abierta (Supabase la guarda en el navegador)
+    return responder(200, { sesion: true });
+  }
+
+  // ---- CONFIRMAR LA CUENTA con el código que llegó al registrarse ----
+  async function confirmarRegistro({ correo, codigo }) {
+    correo = limpiar(correo).toLowerCase();
+    codigo = limpiar(codigo);
+    if (!/^\d{6}$/.test(codigo)) {
+      return responder(400, { mensaje: 'Revisa el código', errores: { codigo: 'El código tiene 6 dígitos' } });
+    }
+    const { error } = await clienteSupabase.auth.verifyOtp({ email: correo, token: codigo, type: 'signup' });
+    if (error) return responder(401, { mensaje: MSG_CODIGO, errores: { codigo: MSG_CODIGO } });
+
+    // Cuenta confirmada: se cierra la sesión para que entre con su contraseña
+    await clienteSupabase.auth.signOut();
+    return responder(200, { mensaje: '¡Correo confirmado! Ya puedes iniciar sesión.' });
+  }
+
+  // ---- ENVIAR OTRO CÓDIGO ----
+  async function reenviarCodigo({ correo, modo }) {
+    correo = limpiar(correo).toLowerCase();
+    const { error } = modo === 'registro'
+      ? await clienteSupabase.auth.resend({ type: 'signup', email: correo })
+      : await clienteSupabase.auth.signInWithOtp({ email: correo, options: { shouldCreateUser: false } });
+    if (error) return responder(400, { mensaje: traducir(error) });
+    return responder(200, { mensaje: 'Te enviamos un código nuevo. Usa el del último correo.' });
+  }
+
+  // ---- SEGUNDO PASO: revisar el código de 6 dígitos ----
+  async function verificarCodigo({ correo, codigo }) {
+    correo = limpiar(correo).toLowerCase();
+    codigo = limpiar(codigo);
+    if (!/^\d{6}$/.test(codigo)) {
+      return responder(400, { mensaje: 'Revisa el código', errores: { codigo: 'El código tiene 6 dígitos' } });
+    }
+
+    // Supabase revisa el código; si es correcto, abre la sesión
+    const { error } = await clienteSupabase.auth.verifyOtp({ email: correo, token: codigo, type: 'email' });
+    if (error) return responder(401, { mensaje: MSG_CODIGO, errores: { codigo: MSG_CODIGO } });
+
+    // Queda marcado: las próximas veces ya no se pide el código
+    await confirmarDosPasos();
+    return responder(200, { mensaje: 'Verificación completada.' });
+  }
+
+  // Marca la verificación en dos pasos como hecha (también si entró por enlace)
+  async function confirmarDosPasos() {
+    const datos = await leerPerfil();
+    if (!datos) return responder(401, { mensaje: 'Inicia sesión' });
+    await clienteSupabase.from('perfiles').update({ dos_pasos_verificado: true }).eq('id', datos.user.id);
+    return responder(200, { mensaje: 'Verificación en dos pasos completada.' });
+  }
+
+  // ---- DATOS DE LA SESIÓN ----
+  async function sesion() {
+    const datos = await leerPerfil();
+    if (!datos) return responder(401, { mensaje: 'Inicia sesión' });
+    const { user, perfil } = datos;
+
+    return responder(200, {
+      nombre: perfil.nombre || user.email,
+      usuario: perfil.usuario || '-',
+      correo: user.email,
+      telefono: perfil.telefono || '-',
+      documento: perfil.tipo_documento ? `${perfil.tipo_documento} ${perfil.documento}` : '-',
+      dosPasos: perfil.dos_pasos === true,
+      terminosAceptados: perfil.terminos_aceptados || user.created_at
+    });
+  }
+
+  // ---- CERRAR SESIÓN ----
+  async function salir() {
+    await clienteSupabase.auth.signOut();
+    return responder(200, { mensaje: 'Sesión cerrada' });
+  }
+
+  // ---- RECUPERAR CONTRASEÑA: Supabase envía un código de 6 dígitos al correo ----
+  async function recuperar({ correo }) {
+    correo = limpiar(correo).toLowerCase();
+    if (!correo) return responder(400, { mensaje: 'Ingresa tu correo' });
+
+    const { error } = await clienteSupabase.auth.resetPasswordForEmail(correo, { redirectTo: URL_LOGIN });
+    // Solo se avisa si se pasó el límite de envíos; la respuesta normal es SIEMPRE la misma
+    // (así no se revela qué correos están registrados)
+    if (error && error.status === 429) return responder(429, { mensaje: traducir(error) });
+    return responder(200, { mensaje: MSG_RECUPERAR });
+  }
+
+  // ---- GUARDAR NUEVA CONTRASEÑA (con el código del correo, o después de abrir el enlace) ----
+  async function restablecer({ correo, codigo, contrasena, confirmacion }) {
+    // a) Reglas básicas antes de gastar el código
+    const errorBasico = validarContrasena(contrasena);
+    if (errorBasico) return responder(400, { mensaje: 'Revisa los campos marcados', errores: { contrasena: errorBasico } });
+    const errorIguales = validarConfirmacion(contrasena, confirmacion);
+    if (errorIguales) return responder(400, { mensaje: 'Revisa los campos marcados', errores: { confirmacion: errorIguales } });
+
+    // b) Si todavía no hay sesión, Supabase revisa el código (y abre la sesión)
+    const { data: { session } } = await clienteSupabase.auth.getSession();
+    if (!session) {
+      correo = limpiar(correo).toLowerCase();
+      codigo = limpiar(codigo);
+      if (!/^\d{6}$/.test(codigo)) {
+        return responder(400, { mensaje: 'Revisa el código', errores: { codigo: 'El código tiene 6 dígitos' } });
+      }
+      const { error: errorCodigo } = await clienteSupabase.auth.verifyOtp({ email: correo, token: codigo, type: 'recovery' });
+      if (errorCodigo) return responder(401, { mensaje: MSG_CODIGO, errores: { codigo: MSG_CODIGO } });
+    }
+
+    const datos = await leerPerfil();
+    if (!datos) return responder(400, { mensaje: 'El código venció o ya se usó. Pide uno nuevo.', pedirNuevo: true });
+    const { user, perfil } = datos;
+
+    // c) Mismas reglas del registro (incluye no usar nombre, usuario ni correo)
+    const errores = {};
+    const errorClave = validarContrasena(contrasena, { nombre: perfil.nombre, usuario: perfil.usuario, correo: user.email });
+    const errorConfirmar = validarConfirmacion(contrasena, confirmacion);
+    if (errorClave) errores.contrasena = errorClave;
+    if (errorConfirmar) errores.confirmacion = errorConfirmar;
+    if (Object.keys(errores).length) return responder(400, { mensaje: 'Revisa los campos marcados', errores });
+
+    // d) Supabase guarda la nueva contraseña
+    const { error } = await clienteSupabase.auth.updateUser({ password: contrasena });
+    if (error) {
+      if (error.message.toLowerCase().includes('different')) {
+        const mensaje = 'La nueva contraseña debe ser distinta de la anterior.';
+        return responder(400, { mensaje, errores: { contrasena: mensaje } });
+      }
+      return responder(400, { mensaje: traducir(error) });
+    }
+
+    // e) Se cierra la sesión para que entre con la nueva contraseña
+    await clienteSupabase.auth.signOut();
+    return responder(200, { mensaje: 'Contraseña actualizada. Ya puedes iniciar sesión.' });
+  }
+
+  return { registro, login, confirmarRegistro, reenviarCodigo, verificarCodigo, confirmarDosPasos, sesion, salir, recuperar, restablecer };
+})();
+
+
+/* =================================================================
+   PARTE 4. AYUDAS DE INTERFAZ
+   ================================================================= */
+const $ = (id) => document.getElementById(id); // atajo para buscar elementos por id
+
+// 4.1 Llamar al servidor. Los datos se copian (JSON) como si viajaran por internet.
+function llamar(funcion, datos = {}) {
+  return Servidor[funcion](JSON.parse(JSON.stringify(datos)));
+}
+
+// 4.2 Mostrar u ocultar el error de un campo
+function mostrarError(idCampo, mensaje = '') {
+  const texto = $('error-' + idCampo);
+  if (texto) texto.textContent = mensaje;
+  const input = $(idCampo);
+  if (input) input.classList.toggle('invalido', Boolean(mensaje));
+}
+
+// 4.3 Aviso general (tipo: 'exito' o 'error')
+function aviso(texto = '', tipo = '') {
+  const caja = $('aviso');
+  caja.textContent = texto;
+  caja.className = 'aviso ' + tipo;
+  caja.hidden = !texto;
+}
+
+// 4.4 Cambiar de pantalla (solo una visible a la vez)
+function irA(vista) {
+  document.querySelectorAll('.vista').forEach((v) => { v.hidden = v.id !== 'vista-' + vista; });
+  aviso();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Los enlaces con data-ir="pantalla" cambian de pantalla
+// (tienen href="#" para poder usarlos con el teclado; preventDefault evita que salte la página)
+document.querySelectorAll('[data-ir]').forEach((enlace) => {
+  enlace.addEventListener('click', (evento) => {
+    evento.preventDefault();
+    irA(enlace.dataset.ir);
+  });
+});
+
+// 4.5 Botón mientras se espera respuesta
+function cargando(boton, activo, textoNormal) {
+  boton.disabled = activo;
+  boton.textContent = activo ? 'Un momento…' : textoNormal;
+}
+
+// 4.6 Botones para ver u ocultar la contraseña: 👁 cuando está oculta, 🙈 cuando se ve
+document.querySelectorAll('.ojo').forEach((boton) => {
+  boton.textContent = '👁';
+  boton.addEventListener('click', () => {
+    const input = $(boton.dataset.campo);
+    const mostrar = input.type === 'password';
+    input.type = mostrar ? 'text' : 'password';
+    boton.textContent = mostrar ? '🙈' : '👁';
+    boton.setAttribute('aria-label', mostrar ? 'Ocultar contraseña' : 'Mostrar contraseña');
+  });
+});
+
+// 4.7 Medidor de fortaleza conectado a un campo
+function activarMedidor(idCampo, idBarra, idTexto, datosPersona = () => ({})) {
+  const actualizar = () => {
+    const { nivel, texto } = fortaleza($(idCampo).value, datosPersona());
+    $(idBarra).style.width = nivel * 25 + '%'; // 4 niveles = 100 %
+    $(idBarra).dataset.nivel = nivel;          // el color lo pone el CSS
+    $(idTexto).textContent = texto;
+  };
+  $(idCampo).addEventListener('input', actualizar);
+  return actualizar;
+}
+
+// 4.8 Lista de requisitos de la contraseña (cada uno se marca con ✓ al cumplirse)
+const REQUISITOS = {
+  largo: (c) => c.length >= REGLAS.contrasenaMin && c.length <= REGLAS.contrasenaMax,
+  letras: (c) => c !== '' && !RE_DIGITOS.test(c),
+  caracteres: (c) => c !== '' && !RE_PROHIBIDOS.test(c),
+  personal: (c, persona) => c !== '' && !contieneDatosPersonales(c, persona)
+};
+
+function activarRequisitos(idCampo, idLista, datosPersona = () => ({})) {
+  const actualizar = () => {
+    const clave = $(idCampo).value;
+    $(idLista).querySelectorAll('[data-regla]').forEach((item) => {
+      item.classList.toggle('cumple', REQUISITOS[item.dataset.regla](clave, datosPersona()));
+    });
+  };
+  $(idCampo).addEventListener('input', actualizar);
+  actualizar();
+  return actualizar;
+}
+
+/* =================================================================
+   PARTE 5. PANTALLAS
+   ================================================================= */
+
+/* ---------------------------------------------------------------
+   5.1 REGISTRO
+   --------------------------------------------------------------- */
+
+// a) Llenar las listas de país y tipo de documento desde las reglas
+for (const [codigo, pais] of Object.entries(REGLAS.paises)) {
+  $('reg-pais').add(new Option(`${codigo} ${pais.indicativo}`, codigo));
+}
+for (const codigo of Object.keys(REGLAS.documentos)) {
+  $('reg-tipo').add(new Option(codigo, codigo));
+}
+
+// b) Al cambiar el país se ajusta el largo del teléfono
+$('reg-pais').addEventListener('change', () => {
+  $('reg-telefono').maxLength = REGLAS.paises[$('reg-pais').value].digitos;
+  validarCampoRegistro('telefono');
+});
+
+// c) El calendario no deja elegir fechas futuras
+const hoy = new Date();
+$('reg-fecha').max = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
+
+// d) Relación entre el nombre del dato y el id del campo en pantalla
+const CAMPOS_REGISTRO = {
+  nombre: 'reg-nombre', correo: 'reg-correo', usuario: 'reg-usuario', telefono: 'reg-telefono',
+  fechaNacimiento: 'reg-fecha', documento: 'reg-documento', contrasena: 'reg-contrasena',
+  confirmacion: 'reg-confirmacion', terminos: 'reg-terminos'
+};
+
+// e) Leer el formulario
+function leerRegistro() {
+  return {
+    nombre: $('reg-nombre').value,
+    correo: $('reg-correo').value,
+    usuario: $('reg-usuario').value,
+    pais: $('reg-pais').value,
+    telefono: $('reg-telefono').value,
+    fechaNacimiento: $('reg-fecha').value,
+    tipoDocumento: $('reg-tipo').value,
+    documento: $('reg-documento').value,
+    contrasena: $('reg-contrasena').value,     // sin trim
+    confirmacion: $('reg-confirmacion').value,
+    terminos: $('reg-terminos').checked,
+    dosPasos: $('reg-dospasos').checked
+  };
+}
+
+// f) Validar un solo campo y mostrar su error
+const tocados = new Set(); // campos por los que ya pasó el usuario
+function validarCampoRegistro(campo) {
+  if (!tocados.has(campo)) return;
+  const { errores } = validarRegistro(leerRegistro());
+  mostrarError(CAMPOS_REGISTRO[campo], errores[campo]);
+}
+
+// g) Validar al salir de cada campo y luego mientras escribe
+for (const [campo, id] of Object.entries(CAMPOS_REGISTRO)) {
+  const input = $(id);
+
+  input.addEventListener('blur', () => {
+    // Limpieza: quitar espacios al inicio y al final (nunca en contraseñas)
+    if (['text', 'email', 'tel'].includes(input.type)) input.value = input.value.trim();
+    tocados.add(campo);
+    validarCampoRegistro(campo);
+  });
+
+  input.addEventListener(input.type === 'checkbox' ? 'change' : 'input', () => {
+    // Nombre: no permitir espacios al principio
+    if (campo === 'nombre') input.value = input.value.replace(/^\s+/, '');
+    // Usuario: no permitir espacios al principio
+    if (campo === 'usuario') input.value = input.value.replace(/^\s+/, '');
+    // Documento: no permitir espacios (ni nada que no sea número)
+    if (campo === 'documento') input.value = input.value.replace(/\D/g, '');
+    validarCampoRegistro(campo);
+    if (campo === 'contrasena') validarCampoRegistro('confirmacion'); // revisar si siguen coincidiendo
+  });
+}
+
+// h) Medidor de fortaleza y requisitos (usan nombre, usuario y correo para detectar datos personales)
+const personaRegistro = () => ({
+  nombre: $('reg-nombre').value, usuario: $('reg-usuario').value, correo: $('reg-correo').value
+});
+const actualizarMedidorRegistro = activarMedidor('reg-contrasena', 'reg-medidor', 'reg-medidor-texto', personaRegistro);
+const actualizarRequisitosRegistro = activarRequisitos('reg-contrasena', 'reg-requisitos', personaRegistro);
+
+// Si cambian nombre, usuario o correo, se recalcula el requisito "sin datos personales"
+['reg-nombre', 'reg-usuario', 'reg-correo'].forEach((id) => {
+  $(id).addEventListener('input', () => { actualizarRequisitosRegistro(); actualizarMedidorRegistro(); });
+});
+
+// i) Enviar el registro
+$('form-registro').addEventListener('submit', async (evento) => {
+  evento.preventDefault(); // no recargar la página
+  aviso();
+
+  // Validar todo en el cliente y mostrar los errores
+  const { valido, errores } = validarRegistro(leerRegistro());
+  for (const [campo, id] of Object.entries(CAMPOS_REGISTRO)) {
+    tocados.add(campo);
+    mostrarError(id, errores[campo]);
+  }
+
+  // Si hay errores no se envía nada y el cursor va al primer error
+  if (!valido) {
+    $(CAMPOS_REGISTRO[Object.keys(errores)[0]]).focus();
+    aviso('Revisa los campos marcados.', 'error');
+    return;
+  }
+
+  // Enviar al servidor (que vuelve a validar todo)
+  cargando($('btn-registro'), true, 'Crear mi cuenta');
+  const { estado, datos } = await llamar('registro', leerRegistro());
+  cargando($('btn-registro'), false, 'Crear mi cuenta');
+
+  if (estado === 201) {
+    $('form-registro').reset();
+    tocados.clear();
+    actualizarMedidorRegistro();
+    actualizarRequisitosRegistro();
+    pedirCodigo('registro', datos.correo);   // pasar a escribir el código
+    aviso(datos.mensaje, 'exito');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+
+  // Errores del servidor (por ejemplo, correo ya registrado)
+  for (const [campo, mensaje] of Object.entries(datos.errores || {})) mostrarError(CAMPOS_REGISTRO[campo], mensaje);
+  aviso(datos.mensaje, 'error');
+});
+
+/* ---------------------------------------------------------------
+   5.2 INICIO DE SESIÓN
+   --------------------------------------------------------------- */
+
+// a) Al salir del campo correo se le quitan los espacios (a la contraseña NUNCA)
+$('log-correo').addEventListener('blur', () => { $('log-correo').value = $('log-correo').value.trim(); });
+
+// b) Cuenta regresiva cuando se bloquea por intentos
+function esperarBloqueo(segundos) {
+  const boton = $('btn-login');
+  boton.disabled = true;
+  aviso(`Demasiados intentos fallidos. Espera ${segundos} segundos para volver a intentar.`, 'error');
+
+  // El botón muestra los segundos que faltan y se reactiva al llegar a cero
+  const tic = () => {
+    if (segundos <= 0) {
+      clearInterval(reloj);
+      boton.disabled = false;
+      boton.textContent = 'Entrar';
+      return;
+    }
+    boton.textContent = `Espera ${segundos} s`;
+    segundos--;
+  };
+  const reloj = setInterval(tic, 1000);
+  tic(); // mostrar el primer segundo de inmediato
+}
+
+// c) Enviar correo y contraseña
+$('form-login').addEventListener('submit', async (evento) => {
+  evento.preventDefault();
+  aviso();
+
+  // Campos obligatorios: no se envía si están vacíos
+  const { valido, errores, datos } = validarLogin({ correo: $('log-correo').value, contrasena: $('log-contrasena').value });
+  mostrarError('log-correo', errores.correo);
+  mostrarError('log-contrasena', errores.contrasena);
+  if (!valido) return;
+
+  cargando($('btn-login'), true, 'Entrar');
+  const respuesta = await llamar('login', datos);
+  cargando($('btn-login'), false, 'Entrar');
+
+  // Bloqueado: cuenta regresiva
+  if (respuesta.estado === 429) return esperarBloqueo(respuesta.datos.espera);
+
+  // Cuenta sin confirmar: se envió un código para confirmarla
+  if (respuesta.datos.pideConfirmar) {
+    $('form-login').reset();
+    pedirCodigo('registro', respuesta.datos.correo);
+    aviso('Tu cuenta aún no está confirmada. Te enviamos un código de 6 dígitos (revisa también spam).', 'exito');
+    return;
+  }
+
+  // Tiene verificación en dos pasos: se envió un código al correo
+  if (respuesta.datos.pideCodigo) {
+    $('form-login').reset();
+    pedirCodigo('dospasos', respuesta.datos.correo);
+    aviso('Te enviamos un código de 6 dígitos. Revisa tu correo (también spam).', 'exito');
+    return;
+  }
+
+  // Entró bien: ir a la página de bienvenida
+  if (respuesta.estado === 200) {
+    $('form-login').reset();
+    irABienvenido();
+    return;
+  }
+
+  // Falló: mensaje genérico y se borra la contraseña
+  $('log-contrasena').value = '';
+  aviso(respuesta.datos.mensaje, 'error');
+});
+
+/* ---------------------------------------------------------------
+   5.3 CÓDIGO DE VERIFICACIÓN
+   La misma pantalla sirve para dos cosas:
+     'registro' → confirmar la cuenta nueva
+     'dospasos' → verificación en dos pasos al iniciar sesión
+   --------------------------------------------------------------- */
+let correoVerificacion = ''; // correo al que se envió el código
+let modoCodigo = 'dospasos';
+
+function pedirCodigo(modo, correo) {
+  modoCodigo = modo;
+  correoVerificacion = correo;
+  $('cod-titulo').textContent = modo === 'registro' ? 'Confirma tu correo' : 'Verificación en dos pasos';
+  $('cod-correo').textContent = correo;
+  $('form-codigo').reset();
+  mostrarError('cod-codigo', '');
+  irA('codigo');
+}
+
+// "¿No llegó? Enviar otro código"
+$('btn-reenviar').addEventListener('click', async (evento) => {
+  evento.preventDefault();
+  const { estado, datos } = await llamar('reenviarCodigo', { correo: correoVerificacion, modo: modoCodigo });
+  aviso(datos.mensaje, estado === 200 ? 'exito' : 'error');
+});
+
+// Solo se dejan escribir números en los campos de código
+['cod-codigo', 'res-codigo'].forEach((id) => {
+  $(id).addEventListener('input', () => { $(id).value = $(id).value.replace(/\D/g, '').slice(0, 6); });
+});
+
+$('form-codigo').addEventListener('submit', async (evento) => {
+  evento.preventDefault();
+  const codigo = $('cod-codigo').value.trim();
+  if (!/^\d{6}$/.test(codigo)) return mostrarError('cod-codigo', 'El código tiene 6 dígitos');
+  mostrarError('cod-codigo', '');
+
+  cargando($('btn-codigo'), true, 'Verificar');
+  const accion = modoCodigo === 'registro' ? 'confirmarRegistro' : 'verificarCodigo';
+  const { estado, datos } = await llamar(accion, { correo: correoVerificacion, codigo });
+  cargando($('btn-codigo'), false, 'Verificar');
+
+  // Cuenta confirmada: ahora inicia sesión con su contraseña
+  if (estado === 200 && modoCodigo === 'registro') {
+    $('form-codigo').reset();
+    $('log-correo').value = correoVerificacion;
+    irA('login');
+    aviso(datos.mensaje, 'exito');
+    return;
+  }
+
+  // Verificación en dos pasos correcta: entra
+  if (estado === 200) {
+    $('form-codigo').reset();
+    irABienvenido();
+    return;
+  }
+
+  // Código incorrecto o vencido
+  mostrarError('cod-codigo', (datos.errores || {}).codigo);
+  aviso(datos.mensaje, 'error');
+});
+
+/* ---------------------------------------------------------------
+   5.4 RECUPERAR CONTRASEÑA (Supabase envía un código al correo)
+   --------------------------------------------------------------- */
+let correoRecuperar = ''; // correo al que se envió el código de recuperación
+
+$('form-recuperar').addEventListener('submit', async (evento) => {
+  evento.preventDefault();
+
+  // Limpiar el correo y validarlo
+  const correo = $('rec-correo').value.trim().toLowerCase();
+  $('rec-correo').value = correo;
+  const error = validarCorreo(correo);
+  mostrarError('rec-correo', error);
+  if (error) return;
+
+  cargando($('btn-recuperar'), true, 'Enviar código');
+  const { estado, datos } = await llamar('recuperar', { correo });
+  cargando($('btn-recuperar'), false, 'Enviar código');
+
+  // Error (por ejemplo, demasiados envíos)
+  if (estado !== 200) return aviso(datos.mensaje, 'error');
+
+  // Siempre el mismo mensaje, exista o no el correo. Se pasa a escribir el código.
+  $('form-recuperar').reset();
+  correoRecuperar = correo;
+  $('res-correo').textContent = correo;
+  irA('restablecer');
+  aviso(datos.mensaje, 'exito');
+});
+
+/* ---------------------------------------------------------------
+   5.5 NUEVA CONTRASEÑA (con el código del correo)
+   --------------------------------------------------------------- */
+const actualizarMedidorRestablecer = activarMedidor('res-contrasena', 'res-medidor', 'res-medidor-texto');
+const actualizarRequisitosRestablecer = activarRequisitos('res-contrasena', 'res-requisitos');
+
+$('form-restablecer').addEventListener('submit', async (evento) => {
+  evento.preventDefault();
+
+  // Validar en el cliente (el servidor además revisa nombre, usuario y correo)
+  const contrasena = $('res-contrasena').value;
+  const confirmacion = $('res-confirmacion').value;
+  const codigo = $('res-codigo').value.trim();
+  const { data: { session } } = await clienteSupabase.auth.getSession();
+  const errorCodigo = (session || /^\d{6}$/.test(codigo)) ? '' : 'El código tiene 6 dígitos';
+  const errorClave = validarContrasena(contrasena);
+  const errorConfirmar = validarConfirmacion(contrasena, confirmacion);
+  mostrarError('res-codigo', errorCodigo);
+  mostrarError('res-contrasena', errorClave);
+  mostrarError('res-confirmacion', errorConfirmar);
+  if (errorCodigo || errorClave || errorConfirmar) return;
+
+  cargando($('btn-restablecer'), true, 'Guardar contraseña');
+  const { estado, datos } = await llamar('restablecer', { correo: correoRecuperar, codigo, contrasena, confirmacion });
+  cargando($('btn-restablecer'), false, 'Guardar contraseña');
+
+  // Listo: ir al inicio de sesión
+  if (estado === 200) {
+    $('form-restablecer').reset();
+    actualizarMedidorRestablecer();
+    actualizarRequisitosRestablecer();
+    irA('login');
+    aviso(datos.mensaje, 'exito');
+    return;
+  }
+
+  // El enlace venció: volver a pedir uno
+  if (datos.pedirNuevo) irA('recuperar');
+
+  // Errores (código o contraseña no válidos)
+  mostrarError('res-codigo', (datos.errores || {}).codigo);
+  mostrarError('res-contrasena', (datos.errores || {}).contrasena);
+  mostrarError('res-confirmacion', (datos.errores || {}).confirmacion);
+  aviso(datos.mensaje, 'error');
+});
+
+/* ---------------------------------------------------------------
+   5.6 BIENVENIDA (página protegida)
+   --------------------------------------------------------------- */
+async function mostrarBienvenida() {
+  const { estado, datos } = await llamar('sesion');
+
+  // Sin sesión válida: volver al login
+  if (estado !== 200) {
+    irA('login');
+    return;
+  }
+
+  // textContent evita que se inyecte HTML con los datos del usuario
+  $('bien-nombre').textContent = datos.nombre;
+  $('bien-usuario').textContent = datos.usuario;
+  $('bien-correo').textContent = datos.correo;
+  $('bien-telefono').textContent = datos.telefono;
+  $('bien-documento').textContent = datos.documento;
+  $('bien-dospasos').textContent = datos.dosPasos ? 'Activa' : 'Inactiva';
+  $('bien-terminos').textContent = new Date(datos.terminosAceptados).toLocaleString('es-CO');
+  irA('bienvenida');
+}
+
+// Ir a la página bienvenido.html con el nombre de la persona que inició sesión
+async function irABienvenido() {
+  const { estado, datos } = await llamar('sesion');
+
+  // Sin sesión válida: volver al login
+  if (estado !== 200) {
+    irA('login');
+    return;
+  }
+
+  // Abrir bienvenido.html enviándole el nombre en la dirección (encodeURIComponent protege tildes y espacios)
+  window.location.href = 'bienvenido.html?nombre=' + encodeURIComponent(datos.nombre);
+}
+
+// Cerrar sesión
+$('btn-salir').addEventListener('click', async () => {
+  await llamar('salir');
+  irA('login');
+  aviso('Sesión cerrada.', 'exito');
+});
+
+
+/* =================================================================
+   PARTE 6. INICIO DE LA APLICACIÓN
+   ================================================================= */
+async function iniciar() {
+  // Espera a que Supabase lea el enlace del correo (si se llegó desde uno)
+  const { data: { session } } = await clienteSupabase.auth.getSession();
+
+  // Limpia la dirección para que no queden datos del enlace
+  if (location.hash && location.hash !== '#registro') history.replaceState(null, '', URL_LOGIN);
+
+  // a) El enlace del correo venció o ya se había usado
+  if (errorEnlace) {
+    irA('login');
+    aviso('Ese enlace ya se usó o venció. Si ya confirmaste tu correo, simplemente inicia sesión.', 'error');
+    return;
+  }
+
+  // b) Enlace de confirmación de la cuenta
+  if (tipoEnlace === 'signup') {
+    await clienteSupabase.auth.signOut();
+    irA('login');
+    aviso('¡Correo confirmado! Ya puedes iniciar sesión.', 'exito');
+    return;
+  }
+
+  // c) Enlace para crear una nueva contraseña (recuperación) o
+  //    invitación enviada desde Supabase (Authentication > Users > Send invitation)
+  if ((tipoEnlace === 'recovery' || tipoEnlace === 'invite') && session) {
+    $('res-codigo').closest('.campo').hidden = true;  // ya entró con el enlace: no pide código
+    $('res-correo').textContent = session.user.email;
+    irA('restablecer');
+    aviso(tipoEnlace === 'invite'
+      ? '¡Bienvenid@ a Soccer Players! Crea tu contraseña para entrar.'
+      : 'Escribe tu nueva contraseña.', 'exito');
+    return;
+  }
+
+  // d) Enlace de la verificación en dos pasos
+  if (tipoEnlace === 'magiclink' && session) {
+    await llamar('confirmarDosPasos');
+    irABienvenido();
+    return;
+  }
+
+  // e) Sin enlace: si ya hay sesión, mostrar la bienvenida; si no, el registro
+  if (location.hash === '#registro') {
+    irA('registro');
+  } else if (session) {
+    mostrarBienvenida();
+  } else {
+    irA('registro');
+  }
+}
+
+// Supabase solo funciona si la página se abre con Live Server (http://...),
+// no con doble clic (file://)
+if (location.protocol === 'file:') {
+  irA('login');
+  aviso('Abre esta página con Live Server en Visual Studio Code; con doble clic no se conecta a Supabase.', 'error');
+} else {
+  iniciar();
+}
+</script>
+</body>
+</html>

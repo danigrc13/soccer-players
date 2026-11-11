@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soccer Players</title>
+
+<!-- PROTECCION DE LA PAGINA: la lista queda oculta hasta comprobar en Supabase
+     que hay una sesion iniciada (ver el inicio de window.onload). -->
+<style id="ocultarHastaSesion">body { visibility: hidden; }</style>
+
+<!-- SDK de Supabase (Paso 2.3): debe ir ANTES del script de la pagina -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<!--SECCION DE ESTILO-->
+<style>
+/* Tipografia moderna y tamano base del texto */
+html{font-size: 18px; font-family: 'Segoe UI', Arial, sans-serif;}
+
+:root{
+--azulBarca: #004D98;
+--granaBarca: #A50044;
+--acentoBarca: #6EC1E4;
+--rojoEncabezado: #B00020;
+}
+/* Fondo de toda la pagina con degradado en los colores del equipo */
+body{
+margin: 0;
+padding: 20px;
+background: linear-gradient(135deg, var(--azulBarca) 0%, var(--granaBarca) 100%);
+min-height: 100vh;
+box-sizing: border-box;
+}
+
+/* Capa decorativa con pelotas de futbol flotando en el fondo */
+#fondoPelotas {
+position: fixed;
+top: 0; left: 0; right: 0; bottom: 0;
+overflow: hidden;
+pointer-events: none;
+z-index: 0;
+}
+#fondoPelotas span {
+position: absolute;
+opacity: 0.22;
+line-height: 1;
+animation: flotarPelota 9s ease-in-out infinite;
+}
+@keyframes flotarPelota {
+0%, 100% { transform: translateY(0) rotate(0deg); }
+50% { transform: translateY(-30px) rotate(180deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+#fondoPelotas span { animation: none; }
+}
+
+/* Tarjeta central que organiza y agrupa todo el contenido */
+#contenedor {
+max-width: 1000px;
+margin: 0 auto;
+background-color: #FFF5FB;
+border-radius: 16px;
+padding: 25px;
+box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+position: relative;
+z-index: 1;
+}
+
+/* NOTA: encabezado + barra de botones quedan fijos (sticky) al hacer scroll */
+#encabezadoFijo {
+position: sticky;
+top: 0;
+background-color: #FFF5FB;
+z-index: 20;
+padding-top: 5px;
+margin: -25px -25px 0 -25px;
+padding-left: 25px;
+padding-right: 25px;
+}
+
+/* Encabezado con espacio reservado para el logo del equipo */
+#encabezadoEquipo {
+display: flex;
+align-items: center;
+gap: 15px;
+background: linear-gradient(120deg, var(--rojoEncabezado) 0%, #7a0015 100%);
+border-radius: 12px;
+padding: 15px 20px;
+margin-bottom: 20px;
+border: 2px solid var(--acentoBarca);
+box-shadow: 0 4px 20px rgba(176, 0, 32, 0.35);
+}
+
+#encabezadoEquipo h1 { color: #FFFFFF; margin: 0; font-size: 1.5rem; }
+#encabezadoEquipo p { color: var(--acentoBarca); margin: 0; font-weight: bold; }
+
+/* Contador de jugadores: insignia llamativa en el encabezado */
+#contadorJugadores {
+margin-left: auto;
+background: linear-gradient(135deg, var(--acentoBarca) 0%, #FFFFFF 100%);
+color: var(--granaBarca);
+font-weight: bold;
+font-size: 0.85rem;
+text-transform: uppercase;
+letter-spacing: 0.5px;
+padding: 10px 18px;
+border-radius: 20px;
+border: 2px solid #FFFFFF;
+box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+text-align: center;
+white-space: nowrap;
+}
+#contadorJugadores span {
+display: block;
+font-size: 1.6rem;
+line-height: 1;
+}
+
+/* Botones Inicio y Cerrar sesion (en el encabezado) */
+#botonCerrarSesion, #botonInicio {
+padding: 8px 14px;
+border: 2px solid #FFFFFF;
+border-radius: 20px;
+background-color: transparent;
+color: #FFFFFF;
+font-weight: bold;
+font-size: 0.85rem;
+font-family: inherit;
+text-decoration: none;
+cursor: pointer;
+white-space: nowrap;
+transition: background-color 0.2s ease;
+}
+#botonCerrarSesion:hover, #botonInicio:hover { background-color: rgba(255,255,255,0.2); }
+
+/* Circulo reservado para el logo del equipo */
+#logoEquipo {
+width: 60px;
+height: 60px;
+border-radius: 50%;
+background-color: #FFFFFF;
+display: flex;
+align-items: center;
+justify-content: center;
+font-size: 0.7rem;
+color: #999;
+flex-shrink: 0;
+overflow: hidden;
+}
+#logoEquipo img { width: 100%; height: 100%; object-fit: contain; }
+
+
+/* Barra de busqueda y pestanas de posicion */
+#barraSuperior {
+display: flex;
+flex-wrap: wrap;
+gap: 10px;
+align-items: center;
+margin-bottom: 15px;
+}
+#buscador {
+flex: 1;
+min-width: 200px;
+padding: 8px;
+border: 1px solid #ccc;
+border-radius: 8px;
+}
+.pestana {
+padding: 8px 14px;
+border: none;
+border-radius: 20px;
+background-color: #eee;
+cursor: pointer;
+transition: background-color 0.2s ease;
+}
+.pestana:hover { background-color: #f4c2d7; }
+.pestana.activa {
+background-color: var(--granaBarca);
+color: white;
+}
+
+#botonAgregarNuevo {
+padding: 8px 14px;
+border: none;
+border-radius: 20px;
+background-color: var(--azulBarca);
+color: white;
+cursor: pointer;
+transition: opacity 0.2s ease;
+}
+#botonAgregarNuevo:hover { opacity: 0.85; }
+
+/* Menu desplegable del boton de carga (.txt / JSON) */
+.opcionMenuCargar:hover { background-color: #f4c2d7 !important; }
+
+/* La tabla: fondo blanco, bordes rectos, encabezado oscuro */
+table {
+border-collapse: separate;
+border-spacing: 0;
+width: 100%;
+background-color: #FFFFFF;
+border-radius: 12px;
+overflow: hidden;
+box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+margin-top: 10px;
+}
+th, td {
+border-bottom: 1px solid #eee;
+padding: 12px 10px;
+text-align: center;
+}
+th {
+background: linear-gradient(180deg, #000000 0%, #1a1a1a 100%);
+color: var(--acentoBarca);
+text-transform: uppercase;
+font-size: 0.85rem;
+letter-spacing: 0.5px;
+padding: 14px 10px;
+}
+tr:nth-child(even){background-color: #FCE4EC;}
+tr:nth-child(odd){background-color: #FFFFFF;}
+tr:hover { background-color: #f4c2d7; cursor: pointer; }
+
+/* Fila seleccionada al hacer click sobre un jugador */
+tr.seleccionada {
+background-color: var(--acentoBarca) !important;
+color: #000000 !important;
+font-weight: bold;
+}
+/* Iconos de editar/eliminar dentro de la tabla */
+.btnIcono {
+border: none;
+background: none;
+cursor: pointer;
+font-size: 1.1rem;
+transition: transform 0.15s ease;
+}
+.btnIcono:hover { transform: scale(1.2); }
+
+/* Foto redonda dentro de la fila, y circulo de respaldo con el numero */
+.fotoFila {
+width: 40px; height: 40px; border-radius: 50%; object-fit: cover;
+border: 2px solid var(--acentoBarca); vertical-align: middle;
+}
+.circuloNumeroFila {
+width: 40px; height: 40px; border-radius: 50%;
+background-color: var(--acentoBarca); color: #000;
+display: flex; align-items: center; justify-content: center;
+font-weight: bold; font-size: 0.9rem; margin: 0 auto;
+border: 2px solid #000;
+}
+
+/* NOTA: fondo del modal de agregar/editar jugador */
+.fondoModal {
+display: none;
+position: fixed;
+top: 0; left: 0; right: 0; bottom: 0;
+background-color: transparent;
+z-index: 30;
+}
+
+/* Formulario para agregar/editar: ahora es una ventana centrada (modal) */
+#formularioJugador {
+display: none;
+background-color: #FFFFFF;
+border: 3px solid #000000;
+border-radius: 30px;
+padding: 30px 20px 20px;
+width: 90%;
+max-width: 400px;
+position: fixed;
+top: 50%;
+left: 50%;
+transform: translate(-50%, -50%);
+z-index: 31;
+box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+#formularioJugador div { margin-bottom: 8px; }
+
+/* Titulo del formulario */
+#formularioJugador h3 {
+color: var(--granaBarca);
+text-align: center;
+margin: 5px 0 15px;
+}
+
+/* Etiquetas: Numero, Nombre, Nacionalidad, Posicion, Edad */
+#formularioJugador > div {
+color: var(--azulBarca);
+font-weight: bold;
+font-size: 0.9rem;
+}
+
+#formularioJugador input, #formularioJugador select {
+width: 100%;
+padding: 8px;
+box-sizing: border-box;
+border: 2px solid #ddd;
+border-radius: 8px;
+margin-bottom: 4px;
+font-family: inherit;
+transition: border-color 0.2s ease;
+}
+#formularioJugador input:focus, #formularioJugador select:focus {
+border-color: var(--azulBarca);
+outline: none;
+}
+
+/* Botones Guardar y Cancelar */
+#botonGuardarJugador, #botonCancelar {
+padding: 8px 18px;
+border: none;
+border-radius: 20px;
+cursor: pointer;
+font-weight: bold;
+margin-right: 8px;
+transition: opacity 0.2s ease;
+}
+#botonGuardarJugador {
+background-color: var(--azulBarca);
+color: white;
+}
+#botonGuardarJugador:hover { opacity: 0.85; }
+#botonCancelar {
+background-color: #eee;
+color: #333;
+}
+#botonCancelar:hover { background-color: #ddd; }
+
+/* Balon decorativo sobre el formulario: emoji de balon dentro de un circulo con sombra */
+#formularioJugador::before {
+content: "⚽";
+position: absolute;
+top: -35px;
+left: 50%;
+transform: translateX(-50%);
+width: 65px;
+height: 65px;
+border-radius: 50%;
+background-color: #FFFFFF;
+border: 3px solid #000000;
+display: flex;
+align-items: center;
+justify-content: center;
+font-size: 2.2rem;
+line-height: 1;
+box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+}
+</style>
+
+<!-- CODIGO JAVASCRIPT-->
+<script>
+// ---------- CONEXION CON SUPABASE (Paso 2.4.1) ----------
+
+// Datos del proyecto "ceoget-jugadores" (Project Settings > API en Supabase).
+// La clave anon es publica por diseno: solo puede hacer lo que permitan las politicas de la tabla.
+const SUPABASE_URL = "https://gifnyqivgylqmbeqdjxt.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdpZm55cWl2Z3lscW1iZXFkanh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM4Mzk3OTAsImV4cCI6MjEwOTQxNTc5MH0.bG44k140QRnLpA5Gx0oFyC5M3ztkRLzpVE3DKBIvmsk";
+
+// "supabase" es el objeto global que trae el CDN; el cliente se llama distinto para no pisarlo.
+const clienteSupabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Nombre de la tabla en Supabase y equipo por defecto para los jugadores nuevos.
+const TABLA = "jugadores";
+const EQUIPO_POR_DEFECTO = "FC Barcelona";
+
+/// Ya no hay maximo de jugadores.
+// const MAX_TITULARES = 11; // (eliminada, ya no se usa)
+
+// Orden fijo en el que siempre se muestra la tabla, sin importar el orden en que se cargaron.
+const ORDEN_POSICIONES = ["Portero", "Defensa", "Mediocampista", "Delantero"];
+
+// Nombres en espanol -> nombre en ingles, que es como la API de banderas los conoce.
+const TRADUCCIONES_PAIS = {
+"espana": "Spain", "italia": "Italy", "alemania": "Germany", "brasil": "Brazil",
+"francia": "France", "inglaterra": "United Kingdom", "polonia": "Poland",
+"dinamarca": "Denmark", "portugal": "Portugal", "argentina": "Argentina",
+"uruguay": "Uruguay", "mexico": "Mexico", "colombia": "Colombia", "chile": "Chile",
+"paises bajos": "Netherlands", "holanda": "Netherlands", "belgica": "Belgium",
+"croacia": "Croatia", "marruecos": "Morocco", "camerun": "Cameroon", "japon": "Japan"
+};
+
+// Cache de banderas ya consultadas, para no repetir llamadas a la API.
+let banderaCache = {};
+
+// Mientras esta en null, el formulario esta en modo "agregar".
+// Si tiene un numero, el formulario esta en modo "editar" ese indice del array.
+let indiceEnEdicion = null;
+
+// Filtro de posicion actualmente seleccionado ("Todas" muestra a todos).
+let filtroPosicionActual = "Todas";
+
+// Indice de la fila (jugador) actualmente seleccionada en la tabla, o null si ninguna.
+let filaSeleccionada = null;
+
+// Datos de un JSON ya leido, pendientes de confirmacion en la vista previa.
+let datosJsonPendientes = null;
+
+// Copia local de lo que hay en Supabase. Se llena con cargarDesdeSupabase().
+let PLAYERS = [];
+
+// ---------- CONVERSION ENTRE LA PAGINA Y LA TABLA ----------
+
+// La pagina trabaja con {numero, name, nationality, position, age, equipo}
+// y la tabla de Supabase usa columnas en espanol. Estas dos funciones traducen entre ambas.
+// "numero" de la pagina = "identificacion" de la tabla (es la llave primaria).
+function desdeBD(fila)
+{
+return {
+"numero": String(fila.identificacion),
+"name": fila.nombre,
+"nationality": fila.nacionalidad,
+"position": fila.posicion,
+"age": fila.edad,
+"equipo": fila.equipo
+};
+}
+
+function haciaBD(j)
+{
+return {
+"identificacion": String(j.numero),
+"nombre": j.name,
+"edad": Number(j.age),
+"posicion": j.position,
+"equipo": j.equipo || EQUIPO_POR_DEFECTO,
+"nacionalidad": j.nationality
+};
+}
+
+// Muestra un error de Supabase de forma legible.
+function mostrarErrorSupabase(accion, error)
+{
+alert("No se pudo " + accion + " en Supabase.\n\nDetalle: " + error.message);
+}
+
+// FUNCION INICIAL: se ejecuta al cargar la pagina.
+window.onload = async function ()
+{
+// PROTECCION: si no hay una sesion iniciada en Supabase, se vuelve a login.html.
+const { data } = await clienteSupabase.auth.getSession();
+if (!data.session)
+{
+location.replace("login.html");
+return;
+}
+// Hay sesion: se muestra la pagina.
+document.querySelector("#ocultarHastaSesion").remove();
+
+buildTable();
+
+document.querySelector("#botonAgregarNuevo").addEventListener("click", mostrarFormularioParaAgregar);
+document.querySelector("#botonGuardarJugador").addEventListener("click", guardarJugador);
+document.querySelector("#botonCancelar").addEventListener("click", ocultarFormulario);
+document.querySelector("#buscador").addEventListener("input", buildTable);
+document.querySelector("#inputTxt").addEventListener("change", importarDesdeTxt);
+document.querySelector("#botonBorrarTodo").addEventListener("click", borrarTodo);
+document.querySelector("#botonCerrarSesion").addEventListener("click", cerrarSesion);
+
+// Boton "Cargar archivo": al hacer click muestra el menu con las 2 opciones (.txt / JSON).
+document.querySelector("#botonCargarMenu").addEventListener("click", alternarMenuCargar);
+
+// Opcion "Desde .txt": cierra el menu y abre el selector de archivo .txt (logica original, sin tocar).
+document.querySelector("#opcionCargarTxt").addEventListener("click", function(evento)
+{
+evento.stopPropagation();
+document.querySelector("#menuCargar").style.display = "none";
+document.querySelector("#inputTxt").click();
+});
+
+// Opcion "Desde JSON": cierra el menu y abre el selector de archivo .json.
+document.querySelector("#opcionCargarJson").addEventListener("click", function(evento)
+{
+evento.stopPropagation();
+document.querySelector("#menuCargar").style.display = "none";
+document.querySelector("#inputJson").click();
+});
+
+document.querySelector("#inputJson").addEventListener("change", importarDesdeJson);
+document.querySelector("#botonConfirmarImportarJson").addEventListener("click", confirmarImportarJson);
+document.querySelector("#botonCancelarImportarJson").addEventListener("click", cancelarImportarJson);
+document.querySelector("#botonExportar").addEventListener("click", exportarJugadores);
+
+// Boton "Ver JSON" y los botones de su ventana (Copiar, Descargar, Cerrar).
+document.querySelector("#botonVerJson").addEventListener("click", mostrarJson);
+document.querySelector("#botonCopiarJson").addEventListener("click", copiarJson);
+document.querySelector("#botonDescargarJson").addEventListener("click", descargarJson);
+document.querySelector("#botonCerrarJson").addEventListener("click", cerrarJson);
+document.querySelector("#fondoModalVerJson").addEventListener("click", cerrarJson);
+
+// Cierra el menu de carga si se hace click en cualquier otro lugar de la pagina.
+document.addEventListener("click", function()
+{
+document.querySelector("#menuCargar").style.display = "none";
+});
+
+// Cada boton de pestana filtra por su posicion al hacer click.
+document.querySelectorAll(".pestana").forEach(function(boton)
+{
+boton.addEventListener("click", function()
+{
+filtroPosicionActual = boton.dataset.posicion;
+// Se le quita la clase "activa" a todas las pestanas, y se le pone solo a la elegida.
+document.querySelectorAll(".pestana").forEach(b => b.classList.remove("activa"));
+boton.classList.add("activa");
+buildTable();
+});
+});
+
+// Por ultimo se traen los jugadores desde Supabase.
+cargarDesdeSupabase();
+}
+
+// ---------- CERRAR SESION ----------
+
+// Cierra la sesion en Supabase y regresa a login.html.
+async function cerrarSesion()
+{
+await clienteSupabase.auth.signOut();
+location.href = "login.html";
+}
+
+// ---------- LECTURA (SELECT) - Paso 2.4.2 ----------
+
+// Trae todos los jugadores de la tabla y redibuja la pagina.
+async function cargarDesdeSupabase()
+{
+const { data, error } = await clienteSupabase
+.from(TABLA)
+.select("*")
+.order("created_at", { ascending: true });
+
+if (error)
+{
+mostrarErrorSupabase("cargar los jugadores", error);
+return;
+}
+
+PLAYERS = data.map(desdeBD);
+buildTable();
+}
+
+// Abre el formulario vacio, listo para cargar un jugador nuevo.
+function mostrarFormularioParaAgregar()
+{
+indiceEnEdicion = null;
+document.querySelector("#tituloFormulario").innerText = "Agregar nuevo jugador";
+document.querySelector("#newNumero").value = "";
+document.querySelector("#newName").value = "";
+document.querySelector("#newNationality").value = "";
+document.querySelector("#newPosition").value = "Delantero";
+document.querySelector("#newAge").value = "";
+document.querySelector("#formularioJugador").style.display = "block";
+document.querySelector("#fondoModalJugador").style.display = "block";
+}
+
+// Abre el formulario, pero ya con los datos de un jugador existente (para editarlo).
+function editarJugador(indice)
+{
+indiceEnEdicion = indice;
+let j = PLAYERS[indice];
+document.querySelector("#tituloFormulario").innerText = "Editar jugador";
+document.querySelector("#newNumero").value = j.numero;
+document.querySelector("#newName").value = j.name;
+document.querySelector("#newNationality").value = j.nationality;
+document.querySelector("#newPosition").value = j.position;
+document.querySelector("#newAge").value = j.age;
+document.querySelector("#formularioJugador").style.display = "block";
+document.querySelector("#fondoModalJugador").style.display = "block";
+}
+
+// Cierra el formulario sin guardar nada.
+function ocultarFormulario()
+{
+document.querySelector("#formularioJugador").style.display = "none";
+document.querySelector("#fondoModalJugador").style.display = "none";
+}
+
+// ---------- ELIMINACION (DELETE) - Paso 2.4.4 ----------
+
+// Elimina a un jugador de Supabase, pidiendo confirmacion antes.
+async function eliminarJugador(indice)
+{
+let nombre = PLAYERS[indice].name;
+let confirmar = confirm("Seguro que deseas eliminar a " + nombre + "?");
+if (!confirmar) return;
+
+const { error } = await clienteSupabase
+.from(TABLA)
+.delete()
+.eq("identificacion", PLAYERS[indice].numero);
+
+if (error)
+{
+mostrarErrorSupabase("eliminar el jugador", error);
+return;
+}
+
+filaSeleccionada = null;
+await cargarDesdeSupabase();
+}
+
+// Borra TODOS los jugadores de la tabla, pidiendo confirmacion antes.
+async function borrarTodo()
+{
+if (PLAYERS.length === 0)
+{
+alert("No hay ningun jugador cargado.");
+return;
+}
+
+let confirmar = confirm("Seguro que deseas eliminar TODOS los jugadores (" + PLAYERS.length + ")? Esta accion no se puede deshacer.");
+if (!confirmar) return;
+
+// Supabase exige un filtro en los DELETE; este abarca todas las filas.
+const { error } = await clienteSupabase
+.from(TABLA)
+.delete()
+.neq("identificacion", "");
+
+if (error)
+{
+mostrarErrorSupabase("borrar los jugadores", error);
+return;
+}
+
+filaSeleccionada = null;
+await cargarDesdeSupabase();
+}
+
+// Marca (o desmarca si ya estaba) la fila elegida, al hacer clic sobre ella.
+function seleccionarFila(indice)
+{
+filaSeleccionada = (filaSeleccionada === indice) ? null : indice;
+buildTable();
+}
+
+// ---------- ESCRITURA / EDICION (INSERT / UPDATE) - Paso 2.4.3 ----------
+
+// Valida el formulario y, segun el modo, inserta un jugador nuevo o actualiza uno existente.
+async function guardarJugador()
+{
+let numero = document.querySelector("#newNumero").value;
+let nombre = document.querySelector("#newName").value.trim();
+let nacionalidad = document.querySelector("#newNationality").value.trim();
+let posicion = document.querySelector("#newPosition").value;
+let edad = document.querySelector("#newAge").value;
+
+// Ningun campo puede quedar vacio.
+if (numero === "" || nombre === "" || nacionalidad === "" || edad === "")
+{
+alert("Todos los campos son obligatorios.");
+return;
+}
+
+// El numero de jugador debe ser numerico y mayor a 0.
+if (isNaN(numero) || Number(numero) <= 0)
+{
+alert("El numero de jugador debe ser un valor numerico mayor a 0.");
+return;
+}
+
+// El numero no se puede repetir (excepto consigo mismo, si se esta editando).
+let numeroRepetido = PLAYERS.some(function(j, idx){
+return j.numero == numero && idx !== indiceEnEdicion;
+});
+if (numeroRepetido)
+{
+alert("Ese numero de jugador ya esta en uso por otro jugador.");
+return;
+}
+
+// La edad debe ser un numero, y estar en el rango permitido (15 a 50 anios).
+if (isNaN(edad) || edad < 15 || edad > 50)
+{
+alert("La edad debe ser un numero entre 15 y 50 años.");
+return;
+}
+
+let jugadorNuevo = {
+"numero": numero,
+"name": nombre,
+"nationality": nacionalidad,
+"position": posicion,
+"age": Number(edad),
+// Al editar se conserva el equipo que ya tenia; al agregar se usa el equipo por defecto.
+"equipo": (indiceEnEdicion === null) ? EQUIPO_POR_DEFECTO : PLAYERS[indiceEnEdicion].equipo
+};
+
+let resultado;
+if (indiceEnEdicion === null)
+{
+// Modo agregar: INSERT de una fila nueva.
+resultado = await clienteSupabase
+.from(TABLA)
+.insert(haciaBD(jugadorNuevo));
+}
+else
+{
+// Modo editar: UPDATE de la fila que tenia la identificacion original.
+resultado = await clienteSupabase
+.from(TABLA)
+.update(haciaBD(jugadorNuevo))
+.eq("identificacion", PLAYERS[indiceEnEdicion].numero);
+}
+
+if (resultado.error)
+{
+mostrarErrorSupabase("guardar el jugador", resultado.error);
+return;
+}
+
+ocultarFormulario();
+await cargarDesdeSupabase();
+}
+
+// Valida un jugador leido de un archivo. Devuelve el motivo del rechazo, o null si es valido.
+// "pendientes" son los jugadores del mismo archivo que ya pasaron, para no repetir numeros.
+function validarJugadorImportado(j, pendientes)
+{
+let posicionesValidas = ["Portero", "Defensa", "Mediocampista", "Delantero"];
+
+if (!j.numero || !j.name || !j.nationality || !j.position || j.age === "" || j.age === undefined || j.age === null)
+return "faltan datos";
+
+if (isNaN(j.numero) || Number(j.numero) <= 0)
+return "numero invalido";
+
+let repetido = PLAYERS.concat(pendientes).some(function(p){ return p.numero == j.numero; });
+if (repetido)
+return "numero " + j.numero + " ya esta en uso";
+
+if (!posicionesValidas.includes(j.position))
+return "posicion invalida (" + j.position + ")";
+
+if (isNaN(j.age) || j.age < 15 || j.age > 50)
+return "edad fuera de 15-50 (" + j.age + ")";
+
+return null;
+}
+
+// Inserta en Supabase los jugadores validos de una importacion y muestra el resumen.
+async function insertarImportados(nuevos, saltadas)
+{
+if (nuevos.length > 0)
+{
+const { error } = await clienteSupabase
+.from(TABLA)
+.insert(nuevos.map(haciaBD));
+
+if (error)
+{
+mostrarErrorSupabase("importar los jugadores", error);
+return;
+}
+}
+
+await cargarDesdeSupabase();
+
+let mensaje = nuevos.length + " jugador(es) importado(s) correctamente.";
+if (saltadas.length > 0) mensaje += "\n\nSe saltaron " + saltadas.length + " fila(s):\n" + saltadas.join("\n");
+alert(mensaje);
+}
+
+// ---------- CARGAR JUGADORES DESDE UN ARCHIVO .TXT ----------
+
+// Se ejecuta cuando el usuario elige un archivo en el <input type="file">.
+function importarDesdeTxt(evento)
+{
+let archivo = evento.target.files[0];
+if (!archivo) return;
+
+let lector = new FileReader();
+lector.onload = async function(e)
+{
+// Cada linea del archivo es un jugador: numero,nombre,nacionalidad,posicion,edad
+let lineas = e.target.result.split(/\r?\n/).filter(function(l){ return l.trim() !== ""; });
+
+let nuevos = [];
+let saltadas = [];
+
+lineas.forEach(function(linea)
+{
+let partes = linea.split(",").map(function(p){ return p.trim(); });
+let j = {
+"numero": partes[0],
+"name": partes[1],
+"nationality": partes[2],
+"position": partes[3],
+"age": partes[4],
+"equipo": EQUIPO_POR_DEFECTO
+};
+
+let motivo = validarJugadorImportado(j, nuevos);
+if (motivo)
+{
+saltadas.push((j.name || "(fila incompleta)") + ": " + motivo);
+return;
+}
+
+j.age = Number(j.age);
+nuevos.push(j);
+});
+
+// Se limpia el input, para poder volver a importar el mismo archivo si hace falta.
+evento.target.value = "";
+
+await insertarImportados(nuevos, saltadas);
+};
+lector.readAsText(archivo);
+}
+
+// ---------- MENU DEL BOTON "CARGAR ARCHIVO" ----------
+
+// Muestra u oculta el menu con las opciones "Desde .txt" / "Desde JSON".
+function alternarMenuCargar(evento)
+{
+evento.stopPropagation();
+let menu = document.querySelector("#menuCargar");
+menu.style.display = (menu.style.display === "block") ? "none" : "block";
+}
+
+// ---------- CARGAR JUGADORES DESDE UN ARCHIVO .JSON ----------
+
+// Se ejecuta cuando el usuario elige un archivo en "Desde JSON": lee el archivo
+// y muestra una vista previa, sin aplicar todavia ninguna validacion ni cambio en Supabase.
+function importarDesdeJson(evento)
+{
+let archivo = evento.target.files[0];
+if (!archivo) return;
+
+let lector = new FileReader();
+lector.onload = function(e)
+{
+let datos;
+try
+{
+datos = JSON.parse(e.target.result);
+}
+catch (error)
+{
+alert("El archivo no contiene un JSON valido.");
+evento.target.value = "";
+return;
+}
+
+if (!Array.isArray(datos))
+{
+alert("El JSON debe ser una lista de jugadores (un array).");
+evento.target.value = "";
+return;
+}
+
+// Se guarda temporalmente: solo se usa de verdad si el usuario confirma en la vista previa.
+datosJsonPendientes = datos;
+document.querySelector("#contenidoPreviewJson").textContent = JSON.stringify(datos, null, 2);
+document.querySelector("#modalPreviewJson").style.display = "flex";
+document.querySelector("#fondoModalJson").style.display = "block";
+
+evento.target.value = "";
+};
+lector.readAsText(archivo);
+}
+
+// Cierra la vista previa de JSON sin importar nada.
+function cancelarImportarJson()
+{
+datosJsonPendientes = null;
+document.querySelector("#modalPreviewJson").style.display = "none";
+document.querySelector("#fondoModalJson").style.display = "none";
+}
+
+// Devuelve el primer valor que exista entre dos nombres de campo, como texto sin espacios.
+function campo(item, nombreA, nombreB)
+{
+if (!item) return "";
+let valor = (item[nombreA] !== undefined && item[nombreA] !== null) ? item[nombreA] : item[nombreB];
+return (valor === undefined || valor === null) ? "" : String(valor).trim();
+}
+
+// Se ejecuta al confirmar en la vista previa: aqui se validan los datos y se insertan en Supabase.
+// Acepta tanto el formato de la pagina (numero, name...) como el de la tabla (identificacion, nombre...).
+async function confirmarImportarJson()
+{
+if (!datosJsonPendientes)
+{
+cancelarImportarJson();
+return;
+}
+
+let nuevos = [];
+let saltadas = [];
+
+datosJsonPendientes.forEach(function(item)
+{
+let j = {
+"numero": campo(item, "numero", "identificacion"),
+"name": campo(item, "name", "nombre"),
+"nationality": campo(item, "nationality", "nacionalidad"),
+"position": campo(item, "position", "posicion"),
+"age": campo(item, "age", "edad"),
+"equipo": campo(item, "equipo", "equipo") || EQUIPO_POR_DEFECTO
+};
+
+let motivo = validarJugadorImportado(j, nuevos);
+if (motivo)
+{
+saltadas.push((j.name || "(sin nombre)") + ": " + motivo);
+return;
+}
+
+j.age = Number(j.age);
+nuevos.push(j);
+});
+
+cancelarImportarJson();
+await insertarImportados(nuevos, saltadas);
+}
+
+// ---------- EXPORTAR JUGADORES ----------
+
+// Descarga el array PLAYERS actual como un archivo .txt, pero con el contenido
+// interno en formato JSON (JSON.stringify con sangria), no en el formato de comas.
+function exportarJugadores()
+{
+let contenido = JSON.stringify(PLAYERS, null, 2);
+let blob = new Blob([contenido], { type: "text/plain" });
+let url = URL.createObjectURL(blob);
+
+let enlace = document.createElement("a");
+enlace.href = url;
+enlace.download = "jugadores_barcelona.txt";
+document.body.appendChild(enlace);
+enlace.click();
+document.body.removeChild(enlace);
+URL.revokeObjectURL(url);
+}
+
+// ---------- VER JSON EN PANTALLA ----------
+
+// Abre la ventana con el array PLAYERS actual en formato JSON (con sangria).
+function mostrarJson()
+{
+document.querySelector("#contenidoVerJson").textContent = JSON.stringify(PLAYERS, null, 2);
+document.querySelector("#modalVerJson").style.display = "flex";
+document.querySelector("#fondoModalVerJson").style.display = "block";
+}
+
+// Cierra la ventana del JSON.
+function cerrarJson()
+{
+document.querySelector("#modalVerJson").style.display = "none";
+document.querySelector("#fondoModalVerJson").style.display = "none";
+}
+
+// Copia el JSON al portapapeles. Si el navegador no permite la API moderna,
+// usa un textarea oculto como respaldo.
+function copiarJson()
+{
+let texto = JSON.stringify(PLAYERS, null, 2);
+
+if (navigator.clipboard && window.isSecureContext)
+{
+navigator.clipboard.writeText(texto)
+.then(function(){ alert("JSON copiado al portapapeles."); })
+.catch(function(){ copiarJsonRespaldo(texto); });
+}
+else
+{
+copiarJsonRespaldo(texto);
+}
+}
+
+function copiarJsonRespaldo(texto)
+{
+let area = document.createElement("textarea");
+area.value = texto;
+area.style.position = "fixed";
+area.style.opacity = "0";
+document.body.appendChild(area);
+area.select();
+try
+{
+document.execCommand("copy");
+alert("JSON copiado al portapapeles.");
+}
+catch (error)
+{
+alert("No se pudo copiar automaticamente. Selecciona el texto y copialo manualmente.");
+}
+document.body.removeChild(area);
+}
+
+// Descarga el JSON como archivo .json real (a diferencia de "Exportar", que genera .txt).
+function descargarJson()
+{
+let contenido = JSON.stringify(PLAYERS, null, 2);
+let blob = new Blob([contenido], { type: "application/json" });
+let url = URL.createObjectURL(blob);
+
+let enlace = document.createElement("a");
+enlace.href = url;
+enlace.download = "jugadores_barcelona.json";
+document.body.appendChild(enlace);
+enlace.click();
+document.body.removeChild(enlace);
+URL.revokeObjectURL(url);
+}
+
+// Busca el nombre en ingles de un pais escrito en espanol, para preguntarle a la API.
+function traducirPais(nombre)
+{
+let clave = nombre.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+return TRADUCCIONES_PAIS[clave] || nombre;
+}
+
+// Busca la bandera de un pais en la API countries.dev (gratis, sin clave, con cache).
+function obtenerBandera(nacionalidad)
+{
+if (banderaCache[nacionalidad] !== undefined) return Promise.resolve(banderaCache[nacionalidad]);
+
+return fetch("https://countries.dev/name/" + encodeURIComponent(traducirPais(nacionalidad)))
+.then(function(resp){ return resp.ok ? resp.json() : null; })
+.then(function(datos)
+{
+let url = (datos && datos[0] && datos[0].flags) ? datos[0].flags.png : null;
+banderaCache[nacionalidad] = url;
+return url;
+})
+.catch(function(){ banderaCache[nacionalidad] = null; return null; });
+}
+
+// Pone la bandera (o el nombre del pais, si la API no la encontro) en cada celda de nacionalidad.
+function actualizarBanderasEnPantalla()
+{
+document.querySelectorAll(".celdaNacionalidad").forEach(function(celda)
+{
+let nacionalidad = celda.dataset.nacionalidad;
+obtenerBandera(nacionalidad).then(function(url)
+{
+celda.innerHTML = url
+? "<img src='" + url + "' title='" + nacionalidad + "' style='height:22px; border-radius:3px;'>"
+: "<span title='" + nacionalidad + "'>" + nacionalidad + "</span>";
+});
+});
+}
+
+// Dibuja la tabla, aplicando el filtro de posicion, el texto de busqueda,
+// y ordenando siempre Portero -> Defensa -> Mediocampista -> Delantero.
+function buildTable()
+{
+let textoBusqueda = document.querySelector("#buscador").value.toLowerCase();
+
+// Primero se arma la lista de filas que coinciden, guardando su indice REAL en PLAYERS.
+// Primero se filtra solo por posicion (pestana), y se ordena, para poder asignar
+// el ID ANTES de aplicar la busqueda de texto.
+let filasPorPosicion = [];
+for (let i = 0; i < PLAYERS.length; i++)
+{
+let j = PLAYERS[i];
+let coincidePosicion = (filtroPosicionActual === "Todas" || j.position === filtroPosicionActual);
+if (coincidePosicion)
+{
+filasPorPosicion.push({ indiceReal: i, jugador: j });
+}
+}
+
+// Se ordena siempre igual, sin importar el orden en que se cargaron los jugadores.
+filasPorPosicion.sort(function(a, b)
+{
+return ORDEN_POSICIONES.indexOf(a.jugador.position) - ORDEN_POSICIONES.indexOf(b.jugador.position);
+});
+
+// Se asigna el ID segun ese orden (el mismo que se va a mostrar en pantalla).
+filasPorPosicion.forEach(function(item, indice)
+{
+item.id = indice + 1;
+});
+
+// Ahora si se filtra por el texto de busqueda, comparando tambien contra el ID.
+let filasCoincidentes = filasPorPosicion.filter(function(item)
+{
+let j = item.jugador;
+let textoCompleto = (item.id + " " + j.numero + " " + j.name + " " + j.nationality).toLowerCase();
+return textoCompleto.includes(textoBusqueda);
+});
+
+let htmlString = "<table>";
+htmlString += "<tr><th>ID</th><th>Nro De Jugador</th><th>Foto</th><th>Nombre</th><th>Posicion</th><th>Nacionalidad</th><th>Edad</th><th>Acciones</th></tr>";
+
+filasCoincidentes.forEach(function(item, posicionEnTabla)
+{
+let i = item.indiceReal;
+let j = item.jugador;
+
+// Si esta fila es la seleccionada, se le agrega la clase "seleccionada".
+let claseFila = (i === filaSeleccionada) ? " class='seleccionada'" : "";
+
+// El nombre del archivo de foto sigue la misma regla que en Tachira.
+let nombreArchivo = j.numero + "_" + j.name.toLowerCase().replace(/\s+/g, "_") + ".png";
+
+htmlString += "<tr" + claseFila + " onclick='seleccionarFila(" + i + ")'>";
+htmlString += "<td>" + item.id + "</td>";
+htmlString += "<td>" + j.numero + "</td>";
+htmlString += "<td>" +
+"<img class='fotoFila' src='fotos/" + nombreArchivo + "' " +
+"onerror=\"this.outerHTML='<div class=circuloNumeroFila>" + j.numero + "</div>'\">" +
+"</td>";
+htmlString += "<td>" + j.name + "</td>";
+htmlString += "<td>" + j.position + "</td>";
+htmlString += "<td class='celdaNacionalidad' data-nacionalidad='" + j.nationality + "'></td>";
+htmlString += "<td>" + j.age + "</td>";
+// event.stopPropagation() evita que al usar estos botones tambien se seleccione la fila.
+htmlString += "<td>" +
+"<button class='btnIcono' onclick='event.stopPropagation(); editarJugador(" + i + ")'>&#9998;</button>" +
+"<button class='btnIcono' onclick='event.stopPropagation(); eliminarJugador(" + i + ")'>&#128465;</button>" +
+"</td>";
+htmlString += "</tr>";
+});
+
+// Si no hay ninguna coincidencia, se muestra un aviso en vez de una tabla vacia.
+if (filasCoincidentes.length === 0)
+{
+htmlString += "<tr><td colspan='8'>Aun no hay jugadores cargados</td></tr>";
+}
+
+htmlString += "</table>";
+document.querySelector("#theTable").innerHTML = htmlString;
+
+document.querySelector("#contadorJugadoresNumero").innerText = PLAYERS.length;
+
+actualizarBanderasEnPantalla();
+}
+</script>
+</head>
+<body>
+
+<!-- Pelotas decorativas del fondo (no se pueden seleccionar ni hacer click) -->
+<div id="fondoPelotas">
+<span style="top:4%;  left:2%;  font-size:3.5rem; animation-delay:0s;">⚽</span>
+<span style="top:18%; left:12%; font-size:2rem;   animation-delay:-2s;">⚽</span>
+<span style="top:38%; left:4%;  font-size:4.5rem; animation-delay:-4s;">⚽</span>
+<span style="top:62%; left:10%; font-size:2.5rem; animation-delay:-1s;">⚽</span>
+<span style="top:82%; left:3%;  font-size:3rem;   animation-delay:-6s;">⚽</span>
+<span style="top:8%;  left:88%; font-size:2.5rem; animation-delay:-3s;">⚽</span>
+<span style="top:26%; left:93%; font-size:4rem;   animation-delay:-5s;">⚽</span>
+<span style="top:48%; left:85%; font-size:2rem;   animation-delay:-7s;">⚽</span>
+<span style="top:68%; left:92%; font-size:3.5rem; animation-delay:-2.5s;">⚽</span>
+<span style="top:88%; left:84%; font-size:2.5rem; animation-delay:-4.5s;">⚽</span>
+<span style="top:92%; left:45%; font-size:2rem;   animation-delay:-3.5s;">⚽</span>
+<span style="top:1%;  left:50%; font-size:1.8rem; animation-delay:-5.5s;">⚽</span>
+</div>
+
+<div id="contenedor">
+
+<div id="encabezadoFijo">
+<header id="encabezadoEquipo">
+<div id="logoEquipo">
+<img src="logo-barcelona.png" alt="Escudo del equipo">
+</div>
+<div>
+<h1>Lista de Jugadores</h1>
+<p>FC Barcelona</p>
+</div>
+<div id="contadorJugadores">
+<span id="contadorJugadoresNumero">0</span>
+Jugadores
+</div>
+<a id="botonInicio" href="bienvenido.html">← Inicio</a>
+<button id="botonCerrarSesion" type="button">Cerrar sesión</button>
+</header>
+
+<!-- Barra superior: buscador, pestanas de posicion y boton de agregar -->
+<div id="barraSuperior">
+<input type="text" id="buscador" placeholder="Buscar por nombre, pais, ID o numero de jugador">
+<button class="pestana activa" data-posicion="Todas">Todas</button>
+<button class="pestana" data-posicion="Portero">Porteros</button>
+<button class="pestana" data-posicion="Defensa">Defensas</button>
+<button class="pestana" data-posicion="Mediocampista">Medios</button>
+<button class="pestana" data-posicion="Delantero">Delanteros</button>
+<button id="botonAgregarNuevo">+ Anadir jugador</button>
+
+<!-- Boton "Cargar archivo": ahora despliega un menu con 2 opciones (.txt / JSON) -->
+<div id="contenedorCargar" style="position:relative; display:inline-block;">
+<button id="botonCargarMenu" style="padding: 8px 14px; border: none; border-radius: 20px; background-color: var(--acentoBarca); color: #000; cursor:pointer; font-weight:bold;">
+Cargar archivo &#9662;
+</button>
+<div id="menuCargar" style="display:none; position:absolute; top:110%; left:0; background:#FFFFFF; border:2px solid #ddd; border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,0.2); z-index:25; min-width:170px; overflow:hidden;">
+<button type="button" id="opcionCargarTxt" class="opcionMenuCargar" style="display:block; width:100%; text-align:left; padding:10px 14px; border:none; background:#FFFFFF; cursor:pointer; font-weight:bold; color:var(--azulBarca);">Desde .txt</button>
+<button type="button" id="opcionCargarJson" class="opcionMenuCargar" style="display:block; width:100%; text-align:left; padding:10px 14px; border:none; background:#FFFFFF; cursor:pointer; font-weight:bold; color:var(--azulBarca);">Desde JSON</button>
+</div>
+<input type="file" id="inputTxt" accept=".txt" style="display:none;">
+<input type="file" id="inputJson" accept=".json" style="display:none;">
+</div>
+
+<button id="botonExportar" style="padding: 8px 14px; border: none; border-radius: 20px; background-color: var(--azulBarca); color: #fff; cursor:pointer; font-weight:bold;">Exportar</button>
+<button id="botonVerJson" style="padding: 8px 14px; border: none; border-radius: 20px; background-color: #000; color: var(--acentoBarca); cursor:pointer; font-weight:bold;">{ } Ver JSON</button>
+<button id="botonBorrarTodo" style="padding: 8px 14px; border: none; border-radius: 20px; background-color: #C0392B; color: #fff; cursor:pointer; font-weight:bold;">Borrar todo</button>
+</div>
+</div>
+
+
+<!-- La tabla, se llena por completo con JavaScript -->
+<div id="theTable"></div>
+
+<!-- Fondo oscuro del modal: cubre la pagina mientras el formulario esta abierto -->
+<div class="fondoModal" id="fondoModalJugador"></div>
+
+<!-- Formulario de Agregar/Editar: ahora es una ventana centrada (modal) -->
+<div id="formularioJugador">
+<h3 id="tituloFormulario">Agregar nuevo jugador</h3>
+<div>Numero:</div>
+<input type="number" id="newNumero">
+<div>Nombre:</div>
+<input type="text" id="newName">
+<div>Nacionalidad:</div>
+<input type="text" id="newNationality">
+<div>Posicion:</div>
+<select id="newPosition">
+<option value="Portero">Portero</option>
+<option value="Defensa">Defensa</option>
+<option value="Mediocampista">Mediocampista</option>
+<option value="Delantero">Delantero</option>
+</select>
+<div>Edad:</div>
+<input type="number" id="newAge">
+
+<div style="margin-top:10px;">
+<button id="botonGuardarJugador">Guardar</button>
+<button id="botonCancelar">Cancelar</button>
+</div>
+</div>
+
+<!-- Fondo oscuro del modal de vista previa de importacion JSON -->
+<div class="fondoModal" id="fondoModalJson"></div>
+
+<!-- Vista previa de "Desde JSON": muestra el contenido formateado y pide confirmacion antes de validar/importar -->
+<div id="modalPreviewJson" style="display:none; background-color:#FFFFFF; border:3px solid #000000; border-radius:20px; padding:20px; width:90%; max-width:500px; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); z-index:31; box-shadow:0 8px 24px rgba(0,0,0,0.4); max-height:80vh; flex-direction:column;">
+<h3 style="color:var(--granaBarca); text-align:center; margin:5px 0 15px;">Vista previa - Importar desde JSON</h3>
+<pre id="contenidoPreviewJson" style="background:#f8f8f8; border:1px solid #ddd; border-radius:8px; padding:10px; overflow:auto; max-height:50vh; font-size:0.85rem; white-space:pre-wrap; word-break:break-word; margin:0 0 15px;"></pre>
+<div style="text-align:center;">
+<button id="botonConfirmarImportarJson" style="padding: 8px 18px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; margin-right: 8px; background-color: var(--azulBarca); color: white;">Importar estos datos</button>
+<button id="botonCancelarImportarJson" style="padding: 8px 18px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; background-color: #eee; color: #333;">Cancelar</button>
+</div>
+</div>
+
+<!-- Fondo del modal "Ver JSON" (al hacer click afuera, se cierra) -->
+<div class="fondoModal" id="fondoModalVerJson"></div>
+
+<!-- Ventana "Ver JSON": muestra los jugadores actuales en formato JSON, con Copiar / Descargar / Cerrar -->
+<div id="modalVerJson" style="display:none; background-color:#FFFFFF; border:3px solid #000000; border-radius:20px; padding:20px; width:90%; max-width:550px; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); z-index:31; box-shadow:0 8px 24px rgba(0,0,0,0.4); max-height:80vh; flex-direction:column;">
+<h3 style="color:var(--granaBarca); text-align:center; margin:5px 0 15px;">Jugadores en formato JSON</h3>
+<pre id="contenidoVerJson" style="background:#1a1a1a; color:var(--acentoBarca); border:1px solid #000; border-radius:8px; padding:12px; overflow:auto; max-height:55vh; font-family:Consolas, 'Courier New', monospace; font-size:0.8rem; white-space:pre-wrap; word-break:break-word; margin:0 0 15px;"></pre>
+<div style="text-align:center;">
+<button id="botonCopiarJson" style="padding: 8px 18px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; margin-right: 8px; background-color: var(--azulBarca); color: white;">Copiar</button>
+<button id="botonDescargarJson" style="padding: 8px 18px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; margin-right: 8px; background-color: var(--granaBarca); color: white;">Descargar .json</button>
+<button id="botonCerrarJson" style="padding: 8px 18px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; background-color: #eee; color: #333;">Cerrar</button>
+</div>
+</div>
+
+</div>
+</body>
+
+</html>
