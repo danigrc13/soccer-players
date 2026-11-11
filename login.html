@@ -500,11 +500,9 @@
           <!-- Estrella dorada -->
           <path d="M51 6l2.2 5.3L58.5 13l-5.3 2.2L51 20.5l-2.2-5.3L43.5 13l5.3-1.7z" fill="#edbb00"/>
         </svg>
-        <div>
+ <div>
           <p class="marca-nombre">Soccer Players <span>FC Barcelona</span></p>
-          <p class="marca-lema">La plantilla azulgrana en un solo lugar</p>
-        </div>
-      </div>
+        </div>      </div>
 
       <h2 class="panel-titulo">Tu acceso a la plantilla del Barça</h2>
       <p class="panel-texto">Consulta, agrega y edita los jugadores del primer equipo: posición, edad, nacionalidad y foto.</p>
@@ -1229,9 +1227,10 @@ const Servidor = (() => {
     const { error } = await clienteSupabase.auth.verifyOtp({ email: correo, token: codigo, type: 'signup' });
     if (error) return responder(401, { mensaje: MSG_CODIGO, errores: { codigo: MSG_CODIGO } });
 
-    // Cuenta confirmada: se cierra la sesión para que entre con su contraseña
-    await clienteSupabase.auth.signOut();
-    return responder(200, { mensaje: '¡Correo confirmado! Ya puedes iniciar sesión.' });
+    // Cuenta confirmada y sesión abierta. Este código ya comprobó el correo,
+    // así que también cuenta como la verificación en dos pasos (no se pide otra vez).
+    await confirmarDosPasos();
+    return responder(200, { mensaje: '¡Correo confirmado!' });
   }
 
   // ---- ENVIAR OTRO CÓDIGO ----
@@ -1697,16 +1696,7 @@ $('form-codigo').addEventListener('submit', async (evento) => {
   const { estado, datos } = await llamar(accion, { correo: correoVerificacion, codigo });
   cargando($('btn-codigo'), false, 'Verificar');
 
-  // Cuenta confirmada: ahora inicia sesión con su contraseña
-  if (estado === 200 && modoCodigo === 'registro') {
-    $('form-codigo').reset();
-    $('log-correo').value = correoVerificacion;
-    irA('login');
-    aviso(datos.mensaje, 'exito');
-    return;
-  }
-
-  // Verificación en dos pasos correcta: entra
+  // Código correcto (cuenta confirmada o verificación en dos pasos): entra directo
   if (estado === 200) {
     $('form-codigo').reset();
     irABienvenido();
